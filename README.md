@@ -11,3 +11,6 @@ assetfinder ( https://github.com/tomnomnom/assetfinder.git  )
 Lives subdomains:
 httpx ( https://github.com/projectdiscovery/httpx.git )
 
+Scanning CVES
+
+Nuclei ( https://github.com/projectdiscovery/nuclei.git ) 

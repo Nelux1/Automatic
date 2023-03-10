@@ -32,3 +32,5 @@ How to install:
 
 How to use:
  Automatic.sh example.com
+
+you can disable the commands you want by adding "#" before starting the line.

@@ -23,3 +23,12 @@ qsreplace ( https://github.com/tomnomnom/qsreplace.git )
 Dictionary:
 https://github.com/danielmiessler/SecLists/blob/master/Discovery/DNS/subdomains-top1million-110000.txt
 https://github.com/projectdiscovery/nuclei-templates.git
+
+How to install:
+ Git clone https://github.com/Nelux1/Automatic
+ cd Automatic
+ Chmod +777 Automatic.sh
+ sudo cp Automático.ah /usr/bin
+
+How to use:
+ Automático.sh example.com

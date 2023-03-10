@@ -31,4 +31,4 @@ How to install:
  sudo cp Automático.ah /usr/bin
 
 How to use:
- Automático.sh example.com
+ Automatic.sh example.com

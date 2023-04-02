@@ -24,6 +24,9 @@ Dictionary:
 https://github.com/danielmiessler/SecLists/blob/master/Discovery/DNS/subdomains-top1million-110000.txt
 https://github.com/projectdiscovery/nuclei-templates.git
 
+For cors install:
+rush
+
 How to install:
  Git clone https://github.com/Nelux1/Automatic
  cd Automatic

@@ -1,5 +1,19 @@
 #!/bin/bash
 
+banner="
+
+     e                 d8                                      d8   ,e,
+    d8b     888  888 _d88__  e88~-_  888-~88e-~88e   /~~~8e  _d88__      e88~~\
+
+   /Y88b    888  888  888   d888   i 888  888  888       88b  888   888 d888
+  /  Y88b   888  888  888   8888   | 888  888  888  e88~-888  888   888 8888
+ /____Y88b  888  888  888   Y888   | 888  888  888 C888  888  888   888 Y888
+/      Y88b  88_-888   88_/   88_-~  888  888  888   88_-888   88_/ 888   88__/
+
+"
+
+echo -e "$banner"
+
 url=$1
 
 mkdir $url
@@ -24,7 +38,10 @@ rm $url/sub.txt
 
 echo -e "${GREEN}[+] Harvesting subdomains with amass ++++++++++++++++++++++++++++${ENDCOLOR}"
 amass enum -d $url >> $url/amass.txt
-amass enum -active -d $url -brute -w ~/SecLists/Discovery/DNS/subdomains-top1million-110000.txt | tee -a $url/amass.txt
+#amass enum -active -d $url -brute -w ~/Dic/SecLists/Discovery/DNS/subdomains-top1million-110000.txt | tee -a $url/amass.txt
+amass db -summary -d $url | tee -a $url/amass.txt
+amass enum -src -ip -d $url | tee -a $url/amass.txt
+amass enum -d $url -config .config/amass/config.ini | tee -a $url/amass.txt
 cat $url/amass.txt | aquatone -ports xlarge -out $url/aqua_$url
 
 echo -e "${RED}subdomains found:${ENDCOLOR}"
@@ -39,8 +56,8 @@ echo -e "${GREEN}[+] Lives and more subdomains...${ENDCOLOR}"
 cat $url/final.txt | httpx --status-code --content-length -title -verbose  >> $url/vivos.txt
 
 echo -e "${GREEN}[+] nuclei scan...${ENDCOLOR}"
-nuclei -l $url/lives.txt -t cves >> $url/nuclei.txt
-nuclei -l $url/lives.txt -t ~/nuclei-templates -es info | tee -a $url/nuclei.txt  
+nuclei -l $url/lives.txt -t ~/nuclei-templates -es info | tee -a $url/nuclei.txt
+shodan domain $url | awk '{print $3}' | httpx -silent | nuclei -t ~/nuclei-templates -es info | tee -a $url/nuclei.txt 
 nuclei -l $url/aqua_$url/aquatone_urls.txt -t ~/nuclei-templates -es info | tee -a $url/nuclei.txt 
 nuclei -l $url/aqua_$url -t cves | tee -a $url/nuclei.txt
 

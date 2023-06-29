@@ -33,7 +33,7 @@ How to install:
  Git clone https://github.com/Nelux1/Automatic
  cd Automatic
  Chmod +777 Automatic.sh
- sudo cp Automático.ah /usr/bin
+ sudo cp Automatic.sh /usr/bin
 
 How to use:
  Automatic.sh example.com

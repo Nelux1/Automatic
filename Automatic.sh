@@ -119,3 +119,4 @@ if [[ -n "$url_list" ]]; then
 else
     scan_url "$url"
 fi
+

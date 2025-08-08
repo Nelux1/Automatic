@@ -55,27 +55,64 @@ scan_url() {
     mkdir -p "$folder"
 
     echo -e "\e[32m[+] Enumerating subdomains with assetfinder...\e[0m"
-    assetfinder "$target" | grep "$target" >> "$folder/final.txt"
+    assetfinder "$target" | grep "\.$target$" >> "$folder/final.txt"
     echo -e "\e[31mSubdomains found:\e[0m $(wc -l < "$folder/final.txt")"
 
     echo -e "\e[32m[+] Enumerating subdomains with subfinder...\e[0m"
-    subfinder -d "$target" -silent >> "$folder/final.txt"
+    subfinder -d "$target" -silent | grep "\.$target$" >> "$folder/final.txt"
     echo -e "\e[31mSubdomains found:\e[0m $(wc -l < "$folder/final.txt")"
 
     echo -e "\e[32m[+] Enumerating subdomains with RapidDNS...\e[0m"
     curl -s "https://rapiddns.io/subdomain/$target?full=1" | sed -e 's/<[^>]*>//g' | \
-        grep -oP "([a-zA-Z0-9_-]+\\.$target)" | sort -u | tee -a "$folder/final.txt"
+        grep -oP "([a-zA-Z0-9_-]+\\.$target)" | grep "\.$target$" | sort -u >> "$folder/final.txt"
     echo -e "\e[31mSubdomains found:\e[0m $(wc -l < "$folder/final.txt")"
 
     echo -e "\e[32m[+] Enumerating subdomains with crt.sh...\e[0m"
     curl -s "https://crt.sh/?q=%25.$target" | sed -e 's/<[^>]*>//g' | \
-        grep -oP "([a-zA-Z0-9_-]+\\.$target)" | sort -u | tee -a "$folder/final.txt"
+        grep -oP "([a-zA-Z0-9_-]+\\.$target)" | grep "\.$target$" | sort -u >> "$folder/final.txt"
     echo -e "\e[31mSubdomains found:\e[0m $(wc -l < "$folder/final.txt")"
 
-    echo -e "\e[32m[+] Checking lives subdomains with httpx...\e[0m"
-    cat "$folder/final.txt" | httpx -p  80,81,300,443,591,593,832,981,1010,1311,2082,2087,2095,2096,2480,3000,3128,3333,4243,4567,4711,4712,4993,5000,5104,5108,5800,6543,7000,7396,7474,8000,8001,8008,8014,8042,8069,8080,8081,8088,8090,8091,8118,8123,8172,8222,8243,8280,8281,8333,8443,8500,8834,8880,8888,8983,9000,9043,9060,9080,9090,9091,9200,9443,9800,9981,12443,16080,18091,18092,20720,28017 > "$folder/live.txt"
+    echo -e "\e[32m[+] Enumerating subdomains with amass (brute+active)...\e[0m"
+    amass enum -brute -active -timeout 10 -max-dns-queries 10000 -o "$folder/amass.txt" -d "$target" > /dev/null 2>&1
 
-    cat "$folder/final.txt" | httpx --status-code --content-length -title -fr -verbose -p  80,81,300,443,591,593,832,981,1010,1311,2082,2087,2095,2096,2480,3000,3128,3333,4243,4567,4711,4712,4993,5000,5104,5108,5800,6543,7000,7396,7474,8000,8001,8008,8014,8042,8069,8080,8081,8088,8090,8091,8118,8123,8172,8222,8243,8280,8281,8333,8443,8500,8834,8880,8888,8983,9000,9043,9060,9080,9090,9091,9200,9443,9800,9981,12443,16080,18091,18092,20720,28017 >> "$folder/liveInfo.txt"
+    echo -e "\e[32m[+] Bruteforcing subdomains with ffuf...\e[0m"
+    ffuf -w dic.txt -u https://FUZZ.$target -H "Host: FUZZ.$target" -mc 200,301,302 -fs 0 -t 50 -o "$folder/ffuf_found.txt" -of csv
+
+    if [ -s "$folder/ffuf_found.txt" ]; then
+        awk -F',' 'NR>1{print $2}' "$folder/ffuf_found.txt" | grep "$target" >> "$folder/final.txt"
+    fi
+
+    echo -e "\e[32m[+] Bruteforcing DNS with dnsx...\e[0m"
+    dnsx -silent -wordlist dic.txt -domain "$target" -a -resp -o "$folder/dnsx_found.txt"
+
+    if [ -s "$folder/dnsx_found.txt" ]; then
+        awk '{print $1}' "$folder/dnsx_found.txt" | grep "$target" >> "$folder/final.txt"
+    fi
+
+    #echo -e "\e[32m[+] ASN discovery with amass (intel)...\e[0m"
+    #ASN=$(whois $(dig +short $target | tail -n1) | grep -i origin | head -n1 | awk '{print $2}')
+
+    #if [[ ! -z "$ASN" ]]; then
+    #    amass intel -asn "$ASN" -o "$folder/asn_ips.txt"
+    #    cat "$folder/asn_ips.txt" | httpx -silent -title -tech-detect >> "$folder/asn_httpx.txt"
+    #fi
+
+    cat "$folder/amass.txt" | grep "\.$target$" >> "$folder/final.txt"
+    echo -e "\e[31mSubdomains found:\e[0m $(wc -l < "$folder/final.txt")"
+
+
+    ## Extraer subdominios encontrados por ffuf
+    #if [ -s "$folder/ffuf_found.txt" ]; then
+    #    cut -d ',' -f1 "$folder/ffuf_found.txt" | grep "$target" >> "$folder/final.txt"
+    #fi
+
+    sort -u "$folder/final.txt" -o "$folder/final.txt"
+
+    echo -e "\e[32m[+] Checking live subdomains with httpx...\e[0m"
+    cat "$folder/final.txt" | httpx -p 80,443,8080,8443,8000,3000,9000 -silent > "$folder/live.txt"
+
+    cat "$folder/final.txt" | httpx --status-code --content-length -title -fr -verbose \
+        -p 80,443,8080,8443,8000,3000,9000 >> "$folder/liveInfo.txt"
 
     cat "$folder/live.txt" | httpx -ss -t 20 -system-chrome
 
@@ -101,13 +138,19 @@ scan_url() {
             qsreplace '"><script>confirm(1)</script>' | tee -a "$folder/arch.json" && \
             cat "$folder/arch.json" | while read host; do curl --silent --path-as-is --insecure "$host" | grep -qs "<script>confirm(1)" && echo "$host \033[0;031mVulnerable\n" | tee -a "$folder/xss_vulnerables.txt"; done
 
-        rm -f "$folder/archivo.txt"
-        rm -f "$folder/arch.json"
+        rm -f "$folder/archivo.txt" "$folder/arch.json"
 
-        cat "$folder/allurls.txt" | grep "=" | grep -v "^$" | uro | qsreplace '"><img src=x onerror=alert(1);>' | freq | grep -i "vulnerable" | tee -a "$folder/xss_vulnerables.txt"
+        cat "$folder/allurls.txt" | grep "=" | grep -v "^$" | uro | qsreplace '"><img src=x onerror=alert(1);>' | freq | grep -i "vulnerable" | grep -vi "not vulnerable" | tee -a "$folder/xss_vulnerables.txt"
 
         cat "$folder/live.txt" | httpx -threads 300 -follow-redirects -silent | rush -j200 'curl -m5 -s -I -H "Origin:evil.com" {} | [[ $(grep -c "evil.com") -gt 0 ]] && printf "\n\033[0;32m[VUL TO CORS] - {}\e[m"' 2>/dev/null | tee -a "$folder/cors.txt"
     fi
+
+
+    # Limpieza de archivos temporales
+    rm -f "$folder/ffuf_found.txt" "$folder/amass.txt" "$folder/dnsx_found.txt"
+    [ ! -s "$folder/cors.txt" ] && rm -f "$folder/cors.txt"
+    [ ! -s "$folder/xss_vulnerables.txt" ] && rm -f "$folder/xss_vulnerables.txt"
+
 
     echo -e "\e[32m[+] Scan complete for $target. Results saved in $folder/\e[0m"
 }

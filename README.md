@@ -4,103 +4,122 @@
 
 Automated Reconnaissance and Vulnerability Scanning Tool
 
-This script automates the process of reconnaissance, subdomain enumeration, and vulnerability scanning for a given domain. It leverages multiple tools and online services to gather detailed information about the target.
+Overview
+This Bash script automates subdomain enumeration, reconnaissance, and vulnerability scanning.
+It combines several well-known tools into a single workflow, allowing you to scan a single target or a list of targets efficiently.
 
-Features
+It supports three main modes:
 
-Subdomain Enumeration using Assetfinder, Subfinder, RapidDNS, and crt.sh.
+Subdomain enumeration only
 
-Live Subdomain Checking with Httpx.
+Reconnaissance (subdomains + URL gathering)
 
-URL Discovery using GAU (Get All URLs).
+Full scan (including vulnerability checks)
 
-Vulnerability Scanning with Nuclei (XSS, CORS, and other vulnerabilities).
-Xss Scanning with script + Freq.
+📦 Features
+Subdomain Enumeration via:
 
-Installation
+assetfinder
 
-Ensure you have the following tools installed before running the script:
-      sudo apt update && sudo apt install -y assetfinder subfinder httpx gau nuclei curl
+subfinder
 
-Or install via Go:
+RapidDNS & crt.sh scraping
 
-         go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
-         go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest
-         go install -v github.com/lc/gau/v2/cmd/gau@latest
-         
-uro (Unique URL Optimizer)
+amass (brute-force & active)
 
-      pip install uro
+ffuf DNS bruteforce
 
-qsreplace (Query String Replacer)
+dnsx enumeration
 
-      go install github.com/tomnomnom/qsreplace@latest
+Live Host Detection using httpx
 
-OR
+URL Gathering with gau
 
-      git clone https://github.com/tomnomnom/qsreplace.git
-      cd qsreplace
-      go build .
-      sudo mv qsreplace /usr/local/bin/
+Vulnerability Scanning with:
 
-rush (Command Execution Manager)
+nuclei
 
-      go install github.com/shenwei356/rush@latest
+Basic XSS detection
 
-freq (Frequency Analysis Tool)         
+Basic CORS misconfiguration checks
 
-      go install -v github.com/projectdiscovery/nuclei/v2/cmd/nuclei@latest
-   
-Usage
-Run the script with different options:
+Output management – results organized in separate folders per target.
 
-        ./Automatic.sh -u example.com
+⚙️ Requirements
+Make sure you have the following tools installed and accessible in $PATH:
 
+assetfinder
+
+subfinder
+
+amass
+
+ffuf
+
+dnsx
+
+httpx
+
+gau
+
+nuclei
+
+curl, grep, awk, sed, sort
+
+A wordlist (named dic.txt in script)
+
+📖 Usage
+bash
+Copiar
+Editar
+./scanner.sh [options]
 Options
-            Usage: ./recon_tool.sh [-h] [-a] [-l file] [-u url] [-o output] [-s] [-r]
-      
-         Options:
-           -h         Show this help message
-           -a         Perform full scan including vulnerability scanning
-           -l file    Use a file containing a list of URLs
-           -u url     Scan a single URL
-           -o output  Specify output folder name
-           -s         Perform only subdomain enumeration
-           -r         Perform reconnaissance (subdomains + gau), but no vulnerability scans   
+Option	Description
+-h	Show help message
+-a	Full scan (recon + vulnerability scanning)
+-l file	Use a file containing a list of URLs
+-u url	Scan a single URL
+-o name	Specify output folder name (default: scan_results)
+-s	Subdomain enumeration only
+-r	Recon only (subdomains + gau, no vulnerability scans)
 
-Examples
+🖥️ Examples
+Scan a single target (full mode)
+bash
+Copiar
+Editar
+./automatic.sh -a -u example.com
+Scan multiple targets from a file (recon mode)
+bash
+Copiar
+Editar
+./automatic.sh -r -l targets.txt
+Subdomain enumeration only
+bash
+Copiar
+Editar
+./automatic.sh -s -u example.com
+Save results in a custom folder
+bash
+Copiar
+Editar
+./automatic.sh -a -u example.com -o myresults
+📂 Output Structure
+Each scan creates a folder:
 
-1. Scan a Single Domain
+bash
+Copiar
+Editar
+scan_results/
+└── example.com/
+    ├── live.txt              # Live subdomains
+    ├── liveInfo.txt          # Detailed HTTP info
+    ├── allurls.txt           # URLs from gau
+    ├── nuclei.txt            # Nuclei scan results
+    ├── xss_vulnerables.txt   # XSS findings
+    ├── cors.txt              # CORS issues
+⚠️ Disclaimer
+This tool is for educational and authorized testing purposes only.
+Do NOT use it against systems you do not own or have explicit permission to test.
 
-          ./Automatic.sh -u example.com
-
-2. Scan Multiple Domains from a File
-
-         ./Automatic.sh -l targets.txt
-
-3. Perform Only Subdomain Enumeration
-
-         ./Automatic.sh -s -u example.com
-
-4. Perform Full Reconnaissance Without Vulnerability Scanning
-
-         ./Automatic.sh -r -u example.com
-
-5. Perform Full Scan (Subdomains + Vulnerability Scanning)
-
-         ./Automatic.sh -a -u example.com
-
-Output
-
-The results will be saved in a directory named scan_results/ by default, unless specified otherwise using -o.
-
-Example Output Structure:
-
-     scan_results/
-         └── example.com/
-             ├── final.txt         # All found subdomains
-             ├── live.txt          # Live subdomains
-             ├── urls.txt          # URLs collected with gau
-             ├── nuclei.txt        # Nuclei scan results
-             ├── xss_vulnerable.txt # XSS vulnerabilities detected
-             ├── cors.txt          # CORS misconfigurations detected
+If you want, I can also prepare a diagram showing the workflow of this script from subdomain enumeration to vulnerability scanning, so your students or team can understand the process visually. That could make the README even more engaging.

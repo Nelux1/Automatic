@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "[*] Checking and installing tools required for automatic.sh..."
+echo "[*] Checking and installing tools required for AutomaticRec..."
 sleep 1
 
 # Check privileges
@@ -65,15 +65,31 @@ if [[ ":$PATH:" != *":$(go env GOPATH)/bin:"* ]]; then
   echo "[*] PATH updated. Run: source ~/.bashrc"
 fi
 
-# Create alias for auto_mod.sh
-SCRIPT_PATH="$(pwd)/auto_mod.sh"
+# AutomaticRec en PATH: /usr/bin/AutomaticRec (sin ./ ni .sh)
+INSTALLER_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+INSTALL_ROOT="/opt/AutomaticRec"
+BIN_LINK="/usr/bin/AutomaticRec"
 
-if [ -f "$SCRIPT_PATH" ]; then
-  echo "[*] Adding alias 'auto-scan' to run auto_mod.sh from anywhere..."
-  echo "alias auto-scan='bash $SCRIPT_PATH'" >> ~/.bashrc
-  echo "[✔] Alias added. Run: source ~/.bashrc"
-else
-  echo "[!] auto_mod.sh not found in $(pwd). Place it in this folder before creating the alias."
+if [[ ! -f "$INSTALLER_DIR/AutomaticRec.sh" || ! -f "$INSTALLER_DIR/recon_inverso.py" ]]; then
+  echo "[!] No se encontró AutomaticRec.sh o recon_inverso.py en $INSTALLER_DIR"
+  echo "[!] Ejecutá este script desde el clon del repo (donde están esos archivos)."
+  exit 1
 fi
+
+echo "[*] Instalando AutomaticRec en $INSTALL_ROOT y enlace $BIN_LINK ..."
+mkdir -p "$INSTALL_ROOT" /opt/Automatic
+install -m 755 "$INSTALLER_DIR/AutomaticRec.sh" "$INSTALL_ROOT/AutomaticRec.sh"
+install -m 644 "$INSTALLER_DIR/recon_inverso.py" "$INSTALL_ROOT/recon_inverso.py"
+if [[ -f "$INSTALLER_DIR/AutomaticRec.conf" ]]; then
+  install -m 644 "$INSTALLER_DIR/AutomaticRec.conf" "$INSTALL_ROOT/AutomaticRec.conf"
+fi
+install -m 644 "$INSTALLER_DIR/dic.txt" /opt/Automatic/dic.txt
+
+ln -sfn "$INSTALL_ROOT/AutomaticRec.sh" "$BIN_LINK"
+chmod a+x "$BIN_LINK" 2>/dev/null || true
+
+echo "[✔] Listo: podés ejecutar desde cualquier directorio:"
+echo "       AutomaticRec -u ejemplo.com -a"
+echo "    (ruta instalada: $INSTALL_ROOT → $BIN_LINK)"
 
 echo "[✔] All tools are ready to use."

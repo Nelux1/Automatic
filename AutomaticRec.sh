@@ -24,8 +24,10 @@ COLOR_CYAN="\033[0;36m"
 COLOR_RESET="\033[0m"
 
 # Load optional config file for env vars (e.g., CHAOS_KEY)
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# readlink -f: si el script está en /usr/bin vía symlink, resolvemos al directorio real (recon_inverso.py, conf).
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 CONFIG_FILE="${CONFIG_FILE:-$SCRIPT_DIR/AutomaticRec.conf}"
+RECON_SCRIPT="${SCRIPT_DIR}/recon_inverso.py"
 if [[ -f "$CONFIG_FILE" ]]; then
     set -a
     # shellcheck disable=SC1090
@@ -320,9 +322,6 @@ recon_aws_cache_ttl=""
 recon_skip_ownership="false"
 no_reverse_recon="false"
 create_log="false"
-
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-RECON_SCRIPT="${SCRIPT_DIR}/recon_inverso.py"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in

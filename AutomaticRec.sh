@@ -1,4 +1,4 @@
-    #!/bin/bash
+#!/bin/bash
 
 # Bash 4.3+ required (wait -n support)
 if (( BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 3) )); then

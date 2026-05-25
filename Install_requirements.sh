@@ -40,6 +40,7 @@ install_if_missing ffuf 'go install -v github.com/ffuf/ffuf@latest'
 install_if_missing assetfinder 'go install -v github.com/tomnomnom/assetfinder@latest'
 install_if_missing nuclei 'go install -v github.com/projectdiscovery/nuclei/v2/cmd/nuclei@latest'
 install_if_missing qsreplace 'go install github.com/tomnomnom/qsreplace@latest'
+install_if_missing freq 'go install github.com/takshal/freq@latest'
 
 # Snap (amass)
 if ! command -v amass &>/dev/null; then
@@ -50,10 +51,10 @@ else
 fi
 
 # Cargo tool
-install_if_missing rush 'cargo install rush-cli'
+install_if_missing rush 'go install github.com/shenwei356/rush@latest'
 
 # Python tools (waymore for URLs from Wayback, Common Crawl, etc.)
-pip3 install uro freq waymore --quiet
+pip3 install uro waymore --quiet
 if ! command -v waymore &>/dev/null; then
   echo "[+] Installing waymore..."
   pip3 install waymore
@@ -62,7 +63,8 @@ fi
 # Add Go bin to PATH if not already
 if [[ ":$PATH:" != *":$(go env GOPATH)/bin:"* ]]; then
   echo 'export PATH="$PATH:$(go env GOPATH)/bin"' >> ~/.bashrc
-  echo "[*] PATH updated. Run: source ~/.bashrc"
+  echo 'export PATH="$PATH:$(go env GOPATH)/bin"' >> ~/.zshrc
+  echo "[*] PATH updated. Run: source ~/.bashrc / source ~/.zshrc"
 fi
 
 # AutomaticRec en PATH: /usr/bin/AutomaticRec (sin ./ ni .sh)
@@ -76,7 +78,7 @@ if [[ ! -f "$INSTALLER_DIR/AutomaticRec.sh" || ! -f "$INSTALLER_DIR/recon_invers
   exit 1
 fi
 
-echo "[*] Instalando AutomaticRec en $INSTALL_ROOT y enlace $BIN_LINK ..."
+echo "[*] Sincronizando AutomaticRec en $INSTALL_ROOT ..."
 mkdir -p "$INSTALL_ROOT" /opt/Automatic
 install -m 755 "$INSTALLER_DIR/AutomaticRec.sh" "$INSTALL_ROOT/AutomaticRec.sh"
 install -m 644 "$INSTALLER_DIR/recon_inverso.py" "$INSTALL_ROOT/recon_inverso.py"
@@ -85,11 +87,23 @@ if [[ -f "$INSTALLER_DIR/AutomaticRec.conf" ]]; then
 fi
 install -m 644 "$INSTALLER_DIR/dic.txt" /opt/Automatic/dic.txt
 
+# Crear o actualizar el enlace en /usr/bin/
+if [[ ! -L "$BIN_LINK" && ! -f "$BIN_LINK" ]]; then
+  echo "[+] Creando ejecutable $BIN_LINK ..."
+else
+  echo "[✔] Actualizando ejecutable $BIN_LINK ..."
+fi
 ln -sfn "$INSTALL_ROOT/AutomaticRec.sh" "$BIN_LINK"
 chmod a+x "$BIN_LINK" 2>/dev/null || true
 
 echo "[✔] Listo: podés ejecutar desde cualquier directorio:"
 echo "       AutomaticRec -u ejemplo.com -a"
 echo "    (ruta instalada: $INSTALL_ROOT → $BIN_LINK)"
+echo ""
+echo "[i] Para sincronizar cambios del repo sin reinstalar todo:"
+echo "       sudo bash $INSTALLER_DIR/Install_requirements.sh"
+echo "    o manualmente:"
+echo "       sudo install -m 755 $INSTALLER_DIR/AutomaticRec.sh $INSTALL_ROOT/AutomaticRec.sh"
 
 echo "[✔] All tools are ready to use."
+                                          

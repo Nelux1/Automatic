@@ -394,11 +394,33 @@ if [[ -n "$TIMEOUT_BIN" && "$run_timeout" -gt 0 ]]; then
     TIMEOUT_CMD=("$TIMEOUT_BIN" "$run_timeout")
 fi
 
+# Resolver el httpx correcto (ProjectDiscovery), evitando el httpx Python de ~/.local/bin
+# Busca en go/bin primero; si no, toma el del PATH y valida que sea el correcto
+_find_httpx() {
+    local gobin
+    gobin="$(go env GOPATH 2>/dev/null)/bin/httpx"
+    if [[ -x "$gobin" ]] && "$gobin" -version 2>&1 | grep -q "projectdiscovery\|Current Version"; then
+        echo "$gobin"; return
+    fi
+    # Buscar en PATH saltando el Python httpx
+    local p
+    while IFS= read -r p; do
+        if [[ -x "$p/httpx" ]] && file "$p/httpx" 2>/dev/null | grep -qv "Python"; then
+            if "$p/httpx" -version 2>&1 | grep -q "projectdiscovery\|Current Version"; then
+                echo "$p/httpx"; return
+            fi
+        fi
+    done <<< "$(echo "$PATH" | tr ':' '\n')"
+    # Fallback: el del PATH (puede fallar si es Python)
+    command -v httpx
+}
+HTTPX_BIN="$(_find_httpx)"
+
 CURL_OPTS=(--connect-timeout 10 --max-time 30 --retry 2 --retry-delay 2 --retry-connrefused -s)
 
 check_deps() {
     local missing=()
-    local deps=(python3 assetfinder subfinder amass ffuf dnsx httpx curl)
+    local deps=(python3 assetfinder subfinder amass ffuf dnsx curl)
     if [[ "$mode" == "recon" || "$mode" == "full" ]]; then
         deps+=(waymore)
     fi
@@ -410,6 +432,10 @@ check_deps() {
             missing+=("$dep")
         fi
     done
+    # Validar httpx de ProjectDiscovery por separado (puede haber conflicto con httpx Python)
+    if [[ -z "$HTTPX_BIN" || ! -x "$HTTPX_BIN" ]]; then
+        missing+=(httpx-projectdiscovery)
+    fi
     if [[ ${#missing[@]} -gt 0 ]]; then
         warn "${COLOR_RED}[-] Missing dependencies: ${missing[*]}${COLOR_RESET}"
         exit 1
@@ -711,9 +737,9 @@ scan_url() {
     httpx_live_start=$(date +%s)
     ticker_suppress_on
     if [[ "$silent" == "true" ]]; then
-        httpx -p 80,443,8080,8443,8000,3000,9000 -fd -silent < "$folder/final.txt" > "$folder/live.txt" 2>/dev/null
+        "$HTTPX_BIN" -p 80,443,8080,8443,8000,3000,9000 -fd -silent < "$folder/final.txt" > "$folder/live.txt" 2>/dev/null
     else
-        httpx -p 80,443,8080,8443,8000,3000,9000 -fd < "$folder/final.txt" | tee "$folder/live.txt"
+        "$HTTPX_BIN" -p 80,443,8080,8443,8000,3000,9000 -fd < "$folder/final.txt" | tee "$folder/live.txt"
     fi
     sort -u "$folder/live.txt" -o "$folder/live.txt"
     filter_exclusions "$folder/live.txt"
@@ -728,10 +754,10 @@ scan_url() {
     # liveInfo = mismas URLs que live.txt pero con columnas extra (status, title, etc.)
     # -silent: sin banner duplicado (httpx ya se lanzó arriba); sigue saliendo la tabla a pantalla/archivo.
     if [[ "$silent" == "true" ]]; then
-        httpx --status-code --content-length -title -fr -fd -silent \
+        "$HTTPX_BIN" --status-code --content-length -title -fr -fd -silent \
             -p 80,443,8080,8443,8000,3000,9000 < "$folder/live.txt" > "$folder/liveInfo.txt" 2>/dev/null
     else
-        httpx --status-code --content-length -title -fr -fd -silent \
+        "$HTTPX_BIN" --status-code --content-length -title -fr -fd -silent \
             -p 80,443,8080,8443,8000,3000,9000 < "$folder/live.txt" | tee "$folder/liveInfo.txt"
     fi
     # No filtrar liveInfo para mantener la misma cantidad de líneas que live.txt
@@ -744,13 +770,13 @@ scan_url() {
     mkdir -p "$folder/screenshots"
     if [[ -s "$folder/live.txt" ]]; then
         if [[ "$silent" == "true" ]]; then
-            httpx -ss -t 10 -system-chrome -srd "$folder/screenshots" -fd -silent \
+            "$HTTPX_BIN" -ss -t 10 -system-chrome -srd "$folder/screenshots" -fd -silent \
                 -p 80,443,8080,8443,8000,3000,9000 \
                 -sid 3 -st 15 \
                 < "$folder/live.txt" > /dev/null 2>/dev/null || true
         else
             # Sin tercer banner ni lista de URLs: solo capturas en disco
-            httpx -ss -t 10 -system-chrome -srd "$folder/screenshots" -fd -silent \
+            "$HTTPX_BIN" -ss -t 10 -system-chrome -srd "$folder/screenshots" -fd -silent \
                 -p 80,443,8080,8443,8000,3000,9000 \
                 -sid 3 -st 15 \
                 < "$folder/live.txt" > /dev/null || true
@@ -880,11 +906,11 @@ scan_url() {
             set_phase "CORS"
             ticker_suppress_on
             if [[ "$silent" == "true" ]]; then
-                httpx -threads 300 -follow-redirects -silent < "$folder/live.txt" | \
+                "$HTTPX_BIN" -threads 300 -follow-redirects -silent < "$folder/live.txt" | \
                     rush -j200 'r=$(curl -m5 -s -I -H "Origin: evil.com" {}); echo "$r" | grep -qi "Access-Control-Allow-Origin: evil.com" && echo "[VUL TO CORS] {}"' \
                     2>/dev/null | tee "$folder/cors.txt" > /dev/null
             else
-                httpx -threads 300 -follow-redirects -silent < "$folder/live.txt" | \
+                "$HTTPX_BIN" -threads 300 -follow-redirects -silent < "$folder/live.txt" | \
                     rush -j200 'r=$(curl -m5 -s -I -H "Origin: evil.com" {}); echo "$r" | grep -qi "Access-Control-Allow-Origin: evil.com" && echo "[VUL TO CORS] {}"' \
                     2>/dev/null | tee "$folder/cors.txt"
             fi
@@ -978,4 +1004,3 @@ ticker_stop
 if [[ "$create_log" == "true" && -n "$LOG_FILE" && -f "$LOG_FILE" ]]; then
     printf '%b[*] Scan finished. Log saved to: %b%s%b\n' "$COLOR_CYAN" "$COLOR_GREEN" "$LOG_FILE" "$COLOR_RESET"
 fi
-       

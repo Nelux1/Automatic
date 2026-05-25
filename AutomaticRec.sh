@@ -1,4 +1,4 @@
-#!/bin/bash
+    #!/bin/bash
 
 # Bash 4.3+ required (wait -n support)
 if (( BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 3) )); then
@@ -569,7 +569,7 @@ run_recon() {
             [[ "$INTERRUPTED" -eq 1 ]] && break
             local elapsed
             elapsed=$(format_elapsed "$start_ts")
-            set_phase "Reverse recon in progress"
+            set_phase "Reverse recon in progress (${elapsed})"
             sleep 1
         done
         wait "$recon_pid" 2>/dev/null || true
@@ -658,11 +658,11 @@ scan_url() {
 
     set_phase "amass: brute/active"
     log "${COLOR_GREEN}[+] Enumerating subdomains with amass (brute+active)...${COLOR_RESET}"
-    amass enum -silent -brute -active -timeout 10 -max-dns-queries 10000 -o "$folder/amass.txt" -d "$target" > /dev/null 2>&1
+    amass enum -silent -brute -active -timeout 10 -max-dns-queries 10000 -o "$folder/amass.txt" -d "$target" > /dev/null 2>&1 || true
 
     set_phase "ffuf: bruteforcing subdomains"
     log "${COLOR_GREEN}[+] Bruteforcing subdomains with ffuf...${COLOR_RESET}"
-    ffuf -s -w /opt/Automatic/dic.txt -u https://FUZZ.$target -H "Host: FUZZ.$target" -mc 200,301,302 -fs 0 -t 50 -o "$folder/ffuf_found.txt" -of csv > /dev/null
+    ffuf -s -w /opt/Automatic/dic.txt -u https://FUZZ.$target -H "Host: FUZZ.$target" -mc 200,301,302 -fs 0 -t 50 -o "$folder/ffuf_found.txt" -of csv > /dev/null || true
 
     if [ -s "$folder/ffuf_found.txt" ]; then
         while IFS= read -r raw; do
@@ -747,13 +747,13 @@ scan_url() {
             httpx -ss -t 10 -system-chrome -srd "$folder/screenshots" -fd -silent \
                 -p 80,443,8080,8443,8000,3000,9000 \
                 -sid 3 -st 15 \
-                < "$folder/live.txt" > /dev/null 2>/dev/null
+                < "$folder/live.txt" > /dev/null 2>/dev/null || true
         else
             # Sin tercer banner ni lista de URLs: solo capturas en disco
             httpx -ss -t 10 -system-chrome -srd "$folder/screenshots" -fd -silent \
                 -p 80,443,8080,8443,8000,3000,9000 \
                 -sid 3 -st 15 \
-                < "$folder/live.txt" > /dev/null
+                < "$folder/live.txt" > /dev/null || true
         fi
     else
         log "${COLOR_YELLOW}[!] live.txt vacío — sin screenshots${COLOR_RESET}"
@@ -794,7 +794,7 @@ scan_url() {
             set_phase "waymore: [$waymore_idx/$waymore_total] $domain"
         fi
         local tmpurls="$folder/waymore_${waymore_idx}.tmp"
-        "${TIMEOUT_CMD[@]}" waymore -i "$domain" -mode U -oU "$tmpurls" 2>/dev/null
+        "${TIMEOUT_CMD[@]}" waymore -i "$domain" -mode U -oU "$tmpurls" 2>/dev/null || true
         if [[ -s "$tmpurls" ]]; then
             cat "$tmpurls" >> "$folder/allurls.txt"
         fi
@@ -978,3 +978,4 @@ ticker_stop
 if [[ "$create_log" == "true" && -n "$LOG_FILE" && -f "$LOG_FILE" ]]; then
     printf '%b[*] Scan finished. Log saved to: %b%s%b\n' "$COLOR_CYAN" "$COLOR_GREEN" "$LOG_FILE" "$COLOR_RESET"
 fi
+       

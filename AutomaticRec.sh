@@ -684,7 +684,8 @@ scan_url() {
 
     set_phase "amass: brute/active"
     log "${COLOR_GREEN}[+] Enumerating subdomains with amass (brute+active)...${COLOR_RESET}"
-    amass enum -silent -brute -active -timeout 10 -max-dns-queries 10000 -o "$folder/amass.txt" -d "$target" > /dev/null 2>&1 || true
+    # timeout 420s como hard kill: amass ignora su propio -timeout en algunas versiones y se cuelga indefinidamente
+    timeout 420s amass enum -silent -brute -active -timeout 7 -max-dns-queries 10000 -o "$folder/amass.txt" -d "$target" > /dev/null 2>&1 || true
 
     set_phase "ffuf: bruteforcing subdomains"
     log "${COLOR_GREEN}[+] Bruteforcing subdomains with ffuf...${COLOR_RESET}"

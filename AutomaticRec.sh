@@ -394,25 +394,37 @@ if [[ -n "$TIMEOUT_BIN" && "$run_timeout" -gt 0 ]]; then
     TIMEOUT_CMD=("$TIMEOUT_BIN" "$run_timeout")
 fi
 
-# Resolver el httpx correcto (ProjectDiscovery), evitando el httpx Python de ~/.local/bin
-# Busca en go/bin primero; si no, toma el del PATH y valida que sea el correcto
+# Resolver el httpx correcto (ProjectDiscovery Go binary), evitando el httpx Python de ~/.local/bin
+# Estrategia: buscar binario ELF (Go), no script Python, en rutas conocidas y PATH
 _find_httpx() {
-    local gobin
-    gobin="$(go env GOPATH 2>/dev/null)/bin/httpx"
-    if [[ -x "$gobin" ]] && "$gobin" -version 2>&1 | grep -q "projectdiscovery\|Current Version"; then
-        echo "$gobin"; return
-    fi
-    # Buscar en PATH saltando el Python httpx
+    local candidates=(
+        "$HOME/go/bin/httpx"
+        "/home/$USER/go/bin/httpx"
+        "/root/go/bin/httpx"
+        "/usr/local/bin/httpx"
+    )
+    # Agregar go env GOPATH si está disponible
+    local gopath
+    gopath="$(go env GOPATH 2>/dev/null)"
+    [[ -n "$gopath" ]] && candidates+=("$gopath/bin/httpx")
+
+    for candidate in "${candidates[@]}"; do
+        if [[ -x "$candidate" ]] && file "$candidate" 2>/dev/null | grep -qiE "ELF|Mach-O|executable"; then
+            echo "$candidate"; return
+        fi
+    done
+
+    # Buscar en PATH cualquier httpx que sea binario (no Python)
     local p
     while IFS= read -r p; do
-        if [[ -x "$p/httpx" ]] && file "$p/httpx" 2>/dev/null | grep -qv "Python"; then
-            if "$p/httpx" -version 2>&1 | grep -q "projectdiscovery\|Current Version"; then
-                echo "$p/httpx"; return
-            fi
+        [[ -z "$p" ]] && continue
+        if [[ -x "$p/httpx" ]] && file "$p/httpx" 2>/dev/null | grep -qiE "ELF|Mach-O|executable"; then
+            echo "$p/httpx"; return
         fi
     done <<< "$(echo "$PATH" | tr ':' '\n')"
-    # Fallback: el del PATH (puede fallar si es Python)
-    command -v httpx
+
+    # No se encontró httpx de ProjectDiscovery
+    echo ""
 }
 HTTPX_BIN="$(_find_httpx)"
 

@@ -623,13 +623,22 @@ ctx = ssl._create_unverified_context()
 seen = set()
 out = []
 
+def safe_urljoin(base, rel):
+    try:
+        return urljoin(base, rel)
+    except ValueError:
+        return ""
+
 def add(url):
     url = (url or "").strip()
     if not url or url.startswith(("data:", "javascript:", "blob:")):
         return
     if url.startswith("//"):
         url = "https:" + url
-    parsed = urlparse(url)
+    try:
+        parsed = urlparse(url)
+    except ValueError:
+        return
     if parsed.scheme not in ("http", "https"):
         return
     path = parsed.path or ""
@@ -666,7 +675,9 @@ def fetch_scripts(page):
     except Exception:
         return found
     for src in script_re.findall(html):
-        found.append(urljoin(final, src.strip()))
+        joined = safe_urljoin(final, src.strip())
+        if joined:
+            found.append(joined)
     return found
 
 if hosts:
@@ -730,10 +741,20 @@ map_re = re.compile(r"sourceMappingURL=([^\s*'\"\)]+)")
 ext_re = re.compile(r"\.(?:js|mjs|cjs|map)(?:$|[?#])", re.I)
 urls = [l.strip() for l in (folder / "js.txt").read_text(errors="ignore").splitlines() if l.strip()]
 
+def safe_urljoin(base, rel):
+    try:
+        return urljoin(base, rel) if base else rel
+    except ValueError:
+        return ""
+
 def rank(url):
-    host = (urlparse(url).hostname or "").lower()
+    try:
+        parsed = urlparse(url)
+        host = (parsed.hostname or "").lower()
+        is_map = parsed.path.lower().endswith(".map")
+    except ValueError:
+        return (2, 1, url)
     first = host == target or host.endswith("." + target)
-    is_map = urlparse(url).path.lower().endswith(".map")
     return (0 if first else 1, 0 if is_map else 1, url)
 
 urls = sorted(set(urls), key=rank)
@@ -745,7 +766,10 @@ def save(url, data):
         return None
     if data[:200].lstrip().lower().startswith((b"<!doctype", b"<html")):
         return None
-    path = urlparse(url).path.lower()
+    try:
+        path = urlparse(url).path.lower()
+    except ValueError:
+        return None
     ext = ".map" if path.endswith(".map") else ".js"
     name = hashlib.sha256(url.encode()).hexdigest()[:16] + ext
     dest = bodies / name
@@ -778,8 +802,12 @@ while queue and len(downloaded) < max_js and len(seen) < max_js * 4:
     text = data.decode("utf-8", "ignore")
     m = map_re.search(text)
     if m:
-        map_url = urljoin(final or url, m.group(1).strip())
-        if ext_re.search(urlparse(map_url).path or "") and map_url not in seen:
+        map_url = safe_urljoin(final or url, m.group(1).strip())
+        try:
+            map_path = urlparse(map_url).path or "" if map_url else ""
+        except ValueError:
+            map_path = ""
+        if map_url and ext_re.search(map_path) and map_url not in seen:
             queue.append(map_url)
 
 if downloaded and which("jsluice"):
@@ -809,8 +837,12 @@ if downloaded and which("jsluice"):
                 src_name = str(item.get("filename") or item.get("file") or "")
             base = os.path.basename(src_name)
             parent = manifest.get(base, "")
-            absolute = urljoin(parent, found) if parent else found
-            if ext_re.search(urlparse(absolute).path or "") and absolute not in seen:
+            absolute = safe_urljoin(parent, found) if parent else found
+            try:
+                absolute_path = urlparse(absolute).path or "" if absolute else ""
+            except ValueError:
+                continue
+            if absolute and ext_re.search(absolute_path) and absolute not in seen:
                 extra.append(absolute)
         for map_url in extra:
             if len(downloaded) >= max_js:

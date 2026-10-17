@@ -311,7 +311,7 @@ help_message() {
     echo "  -u url     Scan a single URL (bare domain, e.g. example.com)"
     echo "  -o output  Specify output folder name"
     echo "  -s         Perform only subdomain enumeration"
-    echo "  -r         Perform reconnaissance (subdomains + waymore URLs), but no vulnerability scans"
+    echo "  -r         Recon: subdominios + URLs históricas (waymore, o urlfinder si waymore no trae nada)"
     echo "  -only      Use only the specified domain (no extra recon domains)"
     echo "  --recon-all-domains  Incluir del recon todos los apex del JSON (por defecto solo subdominios de -u)"
     echo "  -x list    Exclude domains/subdomains (CSV: a.com,b.a.com)"
@@ -490,7 +490,10 @@ check_deps() {
         deps+=(amass ffuf dnsx)
     fi
     if [[ "$mode" == "recon" || "$mode" == "full" ]]; then
-        deps+=(waymore)
+        if ! { command -v waymore >/dev/null 2>&1 && python3 -c "import waymore" >/dev/null 2>&1; } \
+            && ! command -v urlfinder >/dev/null 2>&1; then
+            missing+=(urlfinder)
+        fi
     fi
     if [[ "$mode" == "full" ]]; then
         deps+=(nuclei qsreplace uro freq rush)
@@ -1199,40 +1202,73 @@ scan_url() {
         return 0
     fi
 
-    set_phase "waymore: collecting URLs"
-    # Sin Time: durante waymore (ticker sigue suprimido desde httpx); al terminar: duración + URLs.
+    set_phase "urls: collecting"
+    # Sin Time: durante la recolección (ticker sigue suprimido desde httpx); al terminar: duración + URLs.
     ticker_suppress_on
-    log "${COLOR_GREEN}[+] Gathering URLs with waymore (Wayback, Common Crawl, etc.)...${COLOR_RESET}"
+    log "${COLOR_GREEN}[+] Gathering historical URLs...${COLOR_RESET}"
     sed -e 's|^[^:]*://||' -e 's|/.*||' -e 's|:[0-9]*$||' "$folder/live.txt" | sort -u > "$folder/waymore_hosts.txt"
-    local waymore_filter_re='\.(jpg|png|svg|gif|woff|woff2|ico)$'
+    local url_filter_re='\.(jpg|png|svg|gif|woff|woff2|ico)$'
     # Waymore con archivo de varios dominios SOBRESCRIBE -oU en cada dominio (solo queda el último). Ejecutamos 1 dominio por vez y concatenamos.
     [[ -n "$folder" ]] && : > "$folder/allurls.txt"
-    local waymore_start waymore_idx=0 waymore_total
-    waymore_total=$(wc -l < "$folder/waymore_hosts.txt")
-    waymore_start=$(date +%s)
-    while IFS= read -r domain; do
-        [[ -z "$domain" ]] && continue
-        waymore_idx=$((waymore_idx + 1))
-        if [[ "$silent" != "true" ]]; then
-            set_phase "waymore: [$waymore_idx/$waymore_total] $domain"
+    local urls_start urls_idx=0 urls_total waymore_ok="false"
+    urls_total=$(wc -l < "$folder/waymore_hosts.txt")
+    urls_start=$(date +%s)
+    if command -v waymore >/dev/null 2>&1 && python3 -c "import waymore" >/dev/null 2>&1; then
+        waymore_ok="true"
+        log "${COLOR_GREEN}[+] waymore (Wayback, Common Crawl, etc.)...${COLOR_RESET}"
+        while IFS= read -r domain; do
+            [[ -z "$domain" ]] && continue
+            urls_idx=$((urls_idx + 1))
+            if [[ "$silent" != "true" ]]; then
+                set_phase "waymore: [$urls_idx/$urls_total] $domain"
+            fi
+            local tmpurls="$folder/waymore_${urls_idx}.tmp"
+            "${TIMEOUT_CMD[@]}" waymore -i "$domain" -mode U -oU "$tmpurls" >/dev/null 2>>"$folder/waymore_stderr.log" || true
+            if [[ -s "$tmpurls" ]]; then
+                cat "$tmpurls" >> "$folder/allurls.txt"
+            fi
+            rm -f "$tmpurls"
+            [[ "$INTERRUPTED" -eq 1 ]] && break
+        done < "$folder/waymore_hosts.txt"
+    else
+        log "${COLOR_YELLOW}[!] waymore no está usable (el comando existe pero falta el módulo Python). Sigo con urlfinder.${COLOR_RESET}"
+    fi
+    if [[ ! -s "$folder/allurls.txt" && "$INTERRUPTED" -ne 1 ]]; then
+        if command -v urlfinder >/dev/null 2>&1; then
+            if [[ "$waymore_ok" == "true" ]]; then
+                log "${COLOR_YELLOW}[!] waymore no dejó URLs. Sigo con urlfinder.${COLOR_RESET}"
+            else
+                log "${COLOR_GREEN}[+] urlfinder (Wayback y otras fuentes)...${COLOR_RESET}"
+            fi
+            urls_idx=0
+            while IFS= read -r domain; do
+                [[ -z "$domain" ]] && continue
+                urls_idx=$((urls_idx + 1))
+                if [[ "$silent" != "true" ]]; then
+                    set_phase "urlfinder: [$urls_idx/$urls_total] $domain"
+                fi
+                local tmpurls="$folder/urlfinder_${urls_idx}.tmp"
+                # -max-time está en minutos. 3 corta una fuente colgada sin matar el resto del recon.
+                "${TIMEOUT_CMD[@]}" urlfinder -d "$domain" -silent -timeout 30 -max-time 3 -o "$tmpurls" >/dev/null 2>>"$folder/urlfinder_stderr.log" || true
+                if [[ -s "$tmpurls" ]]; then
+                    cat "$tmpurls" >> "$folder/allurls.txt"
+                fi
+                rm -f "$tmpurls"
+                [[ "$INTERRUPTED" -eq 1 ]] && break
+            done < "$folder/waymore_hosts.txt"
+        else
+            warn "${COLOR_YELLOW}[!] No hay urlfinder en PATH y waymore no trajo URLs.${COLOR_RESET}"
         fi
-        local tmpurls="$folder/waymore_${waymore_idx}.tmp"
-        "${TIMEOUT_CMD[@]}" waymore -i "$domain" -mode U -oU "$tmpurls" 2>/dev/null
-        if [[ -s "$tmpurls" ]]; then
-            cat "$tmpurls" >> "$folder/allurls.txt"
-        fi
-        rm -f "$tmpurls"
-        [[ "$INTERRUPTED" -eq 1 ]] && break
-    done < "$folder/waymore_hosts.txt"
+    fi
     rm -f "$folder/waymore_hosts.txt"
     if [[ -s "$folder/allurls.txt" ]]; then
         sort -u "$folder/allurls.txt" -o "$folder/allurls.txt"
-        grep -E -iv "$waymore_filter_re" "$folder/allurls.txt" > "$folder/allurls.tmp" && mv "$folder/allurls.tmp" "$folder/allurls.txt"
+        grep -E -iv "$url_filter_re" "$folder/allurls.txt" > "$folder/allurls.tmp" && mv "$folder/allurls.tmp" "$folder/allurls.txt"
     fi
     rm -f "$folder/allurls.tmp"
     ticker_suppress_off
     if [[ "$silent" != "true" ]]; then
-        log "${COLOR_GREEN}[✓] waymore finished ${COLOR_CYAN}($(format_elapsed "$waymore_start"))${COLOR_RESET} — ${COLOR_CYAN}$(wc -l < "$folder/allurls.txt")${COLOR_RESET} URLs"
+        log "${COLOR_GREEN}[✓] URLs finished ${COLOR_CYAN}($(format_elapsed "$urls_start"))${COLOR_RESET} — ${COLOR_CYAN}$(wc -l < "$folder/allurls.txt")${COLOR_RESET} URLs"
         [[ "$mode" == "full" ]] && log ""
     fi
 

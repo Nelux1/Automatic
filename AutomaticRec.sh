@@ -28,12 +28,40 @@ COLOR_RESET="\033[0m"
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 CONFIG_FILE="${CONFIG_FILE:-$SCRIPT_DIR/AutomaticRec.conf}"
 RECON_SCRIPT="${SCRIPT_DIR}/recon_inverso.py"
-if [[ -f "$CONFIG_FILE" ]]; then
+# 1) Instalación: /opt/AutomaticRec/AutomaticRec.conf
+# 2) Usuario (sin sudo, pisa lo anterior): ~/.config/automaticrec.conf
+automaticrec_source_conf() {
+    [[ -f "$1" ]] || return 0
     set -a
     # shellcheck disable=SC1090
-    source "$CONFIG_FILE"
+    source "$1"
     set +a
-fi
+}
+automaticrec_source_conf "$CONFIG_FILE"
+automaticrec_source_conf "${XDG_CONFIG_HOME:-$HOME/.config}/automaticrec.conf"
+
+# zsh no carga ~/.bashrc, que es donde suele quedar export CHAOS_KEY.
+automaticrec_load_chaos_key() {
+    [[ -n "${CHAOS_KEY:-}" ]] && return 0
+    local f k
+    f="${XDG_CONFIG_HOME:-$HOME/.config}/chaos/config.yaml"
+    if [[ -f "$f" ]]; then
+        k=$(awk -F':' '/^[[:space:]]*key:/{v=$2; gsub(/["'\''[:space:]]/, "", v); print v; exit}' "$f")
+        if [[ -n "$k" ]]; then
+            export CHAOS_KEY="$k"
+            return 0
+        fi
+    fi
+    f="$HOME/.bashrc"
+    if [[ -f "$f" ]]; then
+        k=$(sed -n 's/^[[:space:]]*export[[:space:]]\+CHAOS_KEY=//p' "$f" | tail -n 1)
+        k="${k%\"}"; k="${k#\"}"; k="${k%\'}"; k="${k#\'}"
+        k="${k%%#*}"
+        k="${k%"${k##*[![:space:]]}"}"
+        [[ -n "$k" ]] && export CHAOS_KEY="$k"
+    fi
+}
+automaticrec_load_chaos_key
 
 LOG_FILE=""
 
@@ -274,7 +302,7 @@ ticker_stop() {
 }
 
 help_message() {
-    echo "Usage: $0 [-h] [-a] [-l file] [-u url] [-o output] [-s] [-r]"
+    echo "Usage: $0 [-h] [-a] [-l file] [-u url] [-o output] [-s] [-r] [--brute] [--secrets]"
     echo ""
     echo "Options:"
     echo "  -h         Show this help message"
@@ -301,6 +329,8 @@ help_message() {
     echo "  --recon-aws-cache-ttl N      AWS cache TTL (seconds)"
     echo "  --recon-skip-ownership-check Skip WHOIS ownership check (recon)"
     echo "  --no-reverse-recon       Skip recon_inverso.py (ASN/reverse IP; puede tardar mucho en .gov)"
+    echo "  --brute                  Amass brute+active, ffuf y dnsx (lento; por defecto apagado)"
+    echo "  --secrets                Tras armar js.txt, descarga JS/sourcemaps y guarda solo secretos verificados"
     exit 1
 }
 
@@ -322,6 +352,8 @@ recon_aws_cache_ttl=""
 recon_skip_ownership="false"
 no_reverse_recon="false"
 create_log="false"
+run_brute="false"
+run_secrets="false"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -349,6 +381,8 @@ while [[ $# -gt 0 ]]; do
         --recon-all-domains) recon_all_domains="true"; shift ;;
         --log) create_log="true"; shift ;;
         --no-log) create_log="false"; shift ;;
+        --brute) run_brute="true"; shift ;;
+        --secrets) run_secrets="true"; shift ;;
         --) shift; break ;;
         \?) echo "Invalid option: $1" >&2; exit 1 ;;
         *) echo "Invalid option: $1" >&2; exit 1 ;;
@@ -394,8 +428,19 @@ if [[ -n "$TIMEOUT_BIN" && "$run_timeout" -gt 0 ]]; then
     TIMEOUT_CMD=("$TIMEOUT_BIN" "$run_timeout")
 fi
 
-# Resolver el httpx correcto (ProjectDiscovery Go binary), evitando el httpx Python de ~/.local/bin
-# Estrategia: buscar binario ELF (Go), no script Python, en rutas conocidas y PATH
+# httpx de ProjectDiscovery (binario Go). El httpx de Python en ~/.local/bin no sirve.
+_is_native_bin() {
+    local p="$1"
+    [[ -x "$p" && ! -d "$p" ]] || return 1
+    if command -v file >/dev/null 2>&1; then
+        file "$p" 2>/dev/null | grep -qiE "ELF|Mach-O|executable"
+        return $?
+    fi
+    local sig
+    sig=$(od -An -t x1 -N 4 "$p" 2>/dev/null | tr -d ' \n')
+    [[ "$sig" == "7f454c46" ]]
+}
+
 _find_httpx() {
     local candidates=(
         "$HOME/go/bin/httpx"
@@ -403,36 +448,47 @@ _find_httpx() {
         "/root/go/bin/httpx"
         "/usr/local/bin/httpx"
     )
-    # Agregar go env GOPATH si está disponible
     local gopath
-    gopath="$(go env GOPATH 2>/dev/null)"
+    gopath="$(go env GOPATH 2>/dev/null || true)"
     [[ -n "$gopath" ]] && candidates+=("$gopath/bin/httpx")
 
+    local candidate p
     for candidate in "${candidates[@]}"; do
-        if [[ -x "$candidate" ]] && file "$candidate" 2>/dev/null | grep -qiE "ELF|Mach-O|executable"; then
-            echo "$candidate"; return
+        if _is_native_bin "$candidate"; then
+            echo "$candidate"
+            return
         fi
     done
 
-    # Buscar en PATH cualquier httpx que sea binario (no Python)
-    local p
     while IFS= read -r p; do
         [[ -z "$p" ]] && continue
-        if [[ -x "$p/httpx" ]] && file "$p/httpx" 2>/dev/null | grep -qiE "ELF|Mach-O|executable"; then
-            echo "$p/httpx"; return
+        if _is_native_bin "$p/httpx"; then
+            echo "$p/httpx"
+            return
         fi
     done <<< "$(echo "$PATH" | tr ':' '\n')"
-
-    # No se encontró httpx de ProjectDiscovery
     echo ""
 }
 HTTPX_BIN="$(_find_httpx)"
+
+if [[ -z "${BRUTE_WORDLIST:-}" ]]; then
+    if [[ -s /opt/Automatic/dic.txt ]]; then
+        BRUTE_WORDLIST="/opt/Automatic/dic.txt"
+    elif [[ -s "$SCRIPT_DIR/dic.txt" ]]; then
+        BRUTE_WORDLIST="$SCRIPT_DIR/dic.txt"
+    else
+        BRUTE_WORDLIST=""
+    fi
+fi
 
 CURL_OPTS=(--connect-timeout 10 --max-time 30 --retry 2 --retry-delay 2 --retry-connrefused -s)
 
 check_deps() {
     local missing=()
-    local deps=(python3 assetfinder subfinder amass ffuf dnsx curl)
+    local deps=(python3 assetfinder subfinder curl)
+    if [[ "$run_brute" == "true" ]]; then
+        deps+=(amass ffuf dnsx)
+    fi
     if [[ "$mode" == "recon" || "$mode" == "full" ]]; then
         deps+=(waymore)
     fi
@@ -444,9 +500,11 @@ check_deps() {
             missing+=("$dep")
         fi
     done
-    # Validar httpx de ProjectDiscovery por separado (puede haber conflicto con httpx Python)
     if [[ -z "$HTTPX_BIN" || ! -x "$HTTPX_BIN" ]]; then
         missing+=(httpx-projectdiscovery)
+    fi
+    if [[ "$run_secrets" == "true" ]] && ! command -v trufflehog >/dev/null 2>&1; then
+        missing+=(trufflehog)
     fi
     if [[ ${#missing[@]} -gt 0 ]]; then
         warn "${COLOR_RED}[-] Missing dependencies: ${missing[*]}${COLOR_RESET}"
@@ -515,13 +573,319 @@ with open(path, "w") as f:
 PY
 }
 
-# Solo conservar informes de vulns si tienen contenido; si no, eliminar al final
-remove_empty_vuln_outputs() {
+# Si un resultado no tiene contenido, no dejar el archivo.
+remove_empty_file() {
+    local f="$1"
+    [[ -f "$f" ]] || return 0
+    if [[ ! -s "$f" ]] || ! grep -q '[^[:space:]]' "$f" 2>/dev/null; then
+        rm -f "$f"
+    fi
+}
+
+remove_empty_outputs() {
     local dir="$1"
     local v
-    for v in nuclei.txt xss_vulnerables.txt cors.txt; do
-        [[ -f "$dir/$v" && ! -s "$dir/$v" ]] && rm -f "$dir/$v"
+    for v in nuclei.txt xss_vulnerables.txt cors.txt live.txt liveInfo.txt allurls.txt js.txt secrets.jsonl amass.txt ffuf_found.txt dnsx_found.txt; do
+        remove_empty_file "$dir/$v"
     done
+    if [[ -d "$dir/screenshots" && -z "$(ls -A "$dir/screenshots" 2>/dev/null)" ]]; then
+        rmdir "$dir/screenshots" 2>/dev/null || true
+    fi
+}
+
+# js.txt: .js/.mjs/.cjs/.map de allurls.txt + <script src> de los hosts vivos.
+# No prueba paths de config (.env, .git, actuator).
+collect_js_urls() {
+    local folder="$1"
+    local target="$2"
+    local html_max="${HTML_FETCH_MAX:-400}"
+    set_phase "js: collecting script URLs"
+    log "${COLOR_GREEN}[+] Collecting JS and sourcemap URLs...${COLOR_RESET}"
+    js_count=$(python3 - "$folder" "$target" "$html_max" <<'PY'
+import re, ssl, sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+from urllib.parse import urljoin, urlparse
+from urllib.request import Request, urlopen
+
+folder, target, html_max = Path(sys.argv[1]), sys.argv[2].lower(), int(sys.argv[3])
+ext_re = re.compile(r"\.(?:js|mjs|cjs|map)(?:$|[?#])", re.I)
+script_re = re.compile(r"<script\b[^>]*\bsrc=[\"']([^\"']+)[\"']", re.I)
+ctx = ssl._create_unverified_context()
+seen = set()
+out = []
+
+def add(url):
+    url = (url or "").strip()
+    if not url or url.startswith(("data:", "javascript:", "blob:")):
+        return
+    if url.startswith("//"):
+        url = "https:" + url
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        return
+    path = parsed.path or ""
+    if not ext_re.search(path):
+        return
+    key = parsed._replace(fragment="").geturl()
+    if key in seen:
+        return
+    seen.add(key)
+    out.append(key)
+
+allurls = folder / "allurls.txt"
+if allurls.is_file():
+    for line in allurls.read_text(errors="ignore").splitlines():
+        add(line.strip())
+
+live = folder / "live.txt"
+hosts = []
+if live.is_file():
+    hosts = [l.strip() for l in live.read_text(errors="ignore").splitlines() if l.strip()]
+capped = hosts[html_max:]
+hosts = hosts[:html_max]
+
+def fetch_scripts(page):
+    if not page.startswith("http"):
+        page = "https://" + page
+    req = Request(page, headers={"User-Agent": "Mozilla/5.0"})
+    found = []
+    try:
+        with urlopen(req, timeout=12, context=ctx) as resp:
+            raw = resp.read(1_500_000)
+            final = resp.geturl()
+        html = raw.decode("utf-8", "ignore")
+    except Exception:
+        return found
+    for src in script_re.findall(html):
+        found.append(urljoin(final, src.strip()))
+    return found
+
+if hosts:
+    with ThreadPoolExecutor(max_workers=20) as pool:
+        futs = [pool.submit(fetch_scripts, h) for h in hosts]
+        for fut in as_completed(futs):
+            for url in fut.result():
+                add(url)
+
+js_path = folder / "js.txt"
+if out:
+    js_path.write_text("\n".join(sorted(out)) + "\n", encoding="utf-8")
+else:
+    js_path.unlink(missing_ok=True)
+if capped:
+    print(f"[js] HTML de hosts vivos limitado a {html_max} (quedaron {len(capped)} sin mirar)", file=sys.stderr)
+print(len(out))
+PY
+)
+    js_count=$(echo "$js_count" | tail -n 1 | tr -d ' ')
+    [[ "$js_count" =~ ^[0-9]+$ ]] || js_count=0
+    log "${COLOR_GREEN}[✓] JS URLs ${COLOR_CYAN}${js_count}${COLOR_RESET}"
+    remove_empty_file "$folder/js.txt"
+}
+
+# Descarga js.txt (primero first-party y .map) y deja secrets.jsonl solo con lo que trufflehog verifica.
+run_secrets_phase() {
+    local folder="$1"
+    local target="$2"
+    local max_js="${SECRETS_MAX_JS:-250}"
+    secrets_count=0
+    if [[ "$run_secrets" != "true" ]]; then
+        return 0
+    fi
+    if [[ ! -s "$folder/js.txt" ]]; then
+        log "${COLOR_YELLOW}[!] Secrets: js.txt vacío, nada que escanear${COLOR_RESET}"
+        remove_empty_file "$folder/js.txt"
+        remove_empty_file "$folder/secrets.jsonl"
+        return 0
+    fi
+    if ! command -v trufflehog >/dev/null 2>&1; then
+        warn "${COLOR_RED}[-] trufflehog no está en PATH, secrets omitido${COLOR_RESET}"
+        return 0
+    fi
+    local work downloaded
+    work=$(mktemp -d "$folder/.secrets_work.XXXXXX")
+    set_phase "secrets: downloading JS"
+    log "${COLOR_GREEN}[+] Secrets: descargando hasta ${max_js} JS/sourcemaps...${COLOR_RESET}"
+    downloaded=$(python3 - "$folder" "$target" "$max_js" "$work" <<'PY'
+import hashlib, json, os, re, ssl, subprocess, sys
+from shutil import which
+from pathlib import Path
+from urllib.parse import urljoin, urlparse
+from urllib.request import Request, urlopen
+
+folder, target, max_js, work = Path(sys.argv[1]), sys.argv[2].lower(), int(sys.argv[3]), Path(sys.argv[4])
+bodies = work / "bodies"
+bodies.mkdir(parents=True, exist_ok=True)
+ctx = ssl._create_unverified_context()
+map_re = re.compile(r"sourceMappingURL=([^\s*'\"\)]+)")
+ext_re = re.compile(r"\.(?:js|mjs|cjs|map)(?:$|[?#])", re.I)
+urls = [l.strip() for l in (folder / "js.txt").read_text(errors="ignore").splitlines() if l.strip()]
+
+def rank(url):
+    host = (urlparse(url).hostname or "").lower()
+    first = host == target or host.endswith("." + target)
+    is_map = urlparse(url).path.lower().endswith(".map")
+    return (0 if first else 1, 0 if is_map else 1, url)
+
+urls = sorted(set(urls), key=rank)
+manifest = {}
+downloaded = []
+
+def save(url, data):
+    if len(downloaded) >= max_js:
+        return None
+    if data[:200].lstrip().lower().startswith((b"<!doctype", b"<html")):
+        return None
+    path = urlparse(url).path.lower()
+    ext = ".map" if path.endswith(".map") else ".js"
+    name = hashlib.sha256(url.encode()).hexdigest()[:16] + ext
+    dest = bodies / name
+    if name in manifest:
+        return dest
+    dest.write_bytes(data)
+    manifest[name] = url
+    downloaded.append(url)
+    return dest
+
+def fetch(url):
+    req = Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urlopen(req, timeout=20, context=ctx) as resp:
+        return resp.read(8_000_000), resp.geturl()
+
+queue = list(urls)
+seen = set()
+while queue and len(downloaded) < max_js and len(seen) < max_js * 4:
+    url = queue.pop(0)
+    if url in seen:
+        continue
+    seen.add(url)
+    try:
+        data, final = fetch(url)
+    except Exception:
+        continue
+    dest = save(final or url, data)
+    if dest is None or dest.suffix == ".map":
+        continue
+    text = data.decode("utf-8", "ignore")
+    m = map_re.search(text)
+    if m:
+        map_url = urljoin(final or url, m.group(1).strip())
+        if ext_re.search(urlparse(map_url).path or "") and map_url not in seen:
+            queue.append(map_url)
+
+if downloaded and which("jsluice"):
+    try:
+        proc = subprocess.run(
+            ["jsluice", "urls", "-u", "-c", "8", *[str(bodies / n) for n in manifest]],
+            capture_output=True, text=True, timeout=180,
+        )
+    except Exception:
+        proc = None
+    if proc and proc.stdout:
+        extra = []
+        for line in proc.stdout.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            item = None
+            try:
+                item = json.loads(line)
+                found = item.get("url") if isinstance(item, dict) else None
+            except Exception:
+                found = line if line.startswith("http") else None
+            if not found:
+                continue
+            src_name = ""
+            if isinstance(item, dict):
+                src_name = str(item.get("filename") or item.get("file") or "")
+            base = os.path.basename(src_name)
+            parent = manifest.get(base, "")
+            absolute = urljoin(parent, found) if parent else found
+            if ext_re.search(urlparse(absolute).path or "") and absolute not in seen:
+                extra.append(absolute)
+        for map_url in extra:
+            if len(downloaded) >= max_js:
+                break
+            if map_url in seen:
+                continue
+            seen.add(map_url)
+            try:
+                data, final = fetch(map_url)
+            except Exception:
+                continue
+            save(final or map_url, data)
+
+(work / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+print(len(downloaded))
+PY
+)
+    downloaded=$(echo "$downloaded" | tail -n 1 | tr -d ' ')
+    [[ "$downloaded" =~ ^[0-9]+$ ]] || downloaded=0
+    if [[ "$downloaded" -eq 0 ]]; then
+        log "${COLOR_YELLOW}[!] Secrets: no se pudo bajar ningún JS${COLOR_RESET}"
+        rm -rf "$work"
+        remove_empty_file "$folder/secrets.jsonl"
+        return 0
+    fi
+    set_phase "secrets: trufflehog verified"
+    log "${COLOR_GREEN}[+] Secrets: trufflehog --results=verified sobre ${downloaded} archivos${COLOR_RESET}"
+    trufflehog filesystem --results=verified --json --no-update --no-color "$work/bodies" \
+        > "$work/th.jsonl" 2>"$work/th.err" || true
+    secrets_count=$(python3 - "$folder" "$work" <<'PY'
+import json, sys
+from os.path import basename
+from pathlib import Path
+
+folder, work = Path(sys.argv[1]), Path(sys.argv[2])
+manifest = json.loads((work / "manifest.json").read_text(encoding="utf-8"))
+seen = set()
+rows = []
+raw_path = work / "th.jsonl"
+if raw_path.is_file():
+    for line in raw_path.read_text(errors="ignore").splitlines():
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            item = json.loads(line)
+        except Exception:
+            continue
+        if item.get("Verified") is not True:
+            continue
+        meta = item.get("SourceMetadata") or {}
+        data = (meta.get("Data") or {}).get("Filesystem") or {}
+        filename = basename(str(data.get("file") or ""))
+        url = manifest.get(filename, "")
+        raw = item.get("Raw") or ""
+        raw = raw[:2000] if isinstance(raw, str) else str(raw)[:2000]
+        detector = item.get("DetectorName") or ""
+        key = (detector, raw, url)
+        if key in seen or not raw:
+            continue
+        seen.add(key)
+        rows.append({
+            "url": url,
+            "file": filename,
+            "detector": detector,
+            "verified": True,
+            "line": data.get("line"),
+            "raw": raw,
+        })
+
+out = folder / "secrets.jsonl"
+if rows:
+    out.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
+else:
+    out.unlink(missing_ok=True)
+print(len(rows))
+PY
+)
+    secrets_count=$(echo "$secrets_count" | tail -n 1 | tr -d ' ')
+    [[ "$secrets_count" =~ ^[0-9]+$ ]] || secrets_count=0
+    rm -rf "$work"
+    remove_empty_file "$folder/secrets.jsonl"
+    log "${COLOR_GREEN}[✓] Secrets verified ${COLOR_CYAN}${secrets_count}${COLOR_RESET}"
 }
 
 seed_for_target() {
@@ -607,7 +971,7 @@ run_recon() {
             [[ "$INTERRUPTED" -eq 1 ]] && break
             local elapsed
             elapsed=$(format_elapsed "$start_ts")
-            set_phase "Reverse recon in progress (${elapsed})"
+            set_phase "Reverse recon in progress"
             sleep 1
         done
         wait "$recon_pid" 2>/dev/null || true
@@ -641,6 +1005,8 @@ scan_url() {
     local nuclei_count=0
     local xss_count=0
     local cors_count=0
+    local js_count=0
+    local secrets_count=0
 
     mkdir -p "$folder"
     mkdir -p "$cache_dir"
@@ -672,7 +1038,7 @@ scan_url() {
         if ! command -v chaos >/dev/null 2>&1; then
             log "${COLOR_YELLOW}[!] chaos not installed, skipping${COLOR_RESET}"
         elif [[ -z "${CHAOS_KEY:-}" ]]; then
-            log "${COLOR_YELLOW}[!] CHAOS_KEY not set, skipping chaos${COLOR_RESET}"
+            log "${COLOR_YELLOW}[!] CHAOS_KEY not set, skipping chaos (ponela en ~/.config/automaticrec.conf o $SCRIPT_DIR/AutomaticRec.conf)${COLOR_RESET}"
         fi
     fi
 
@@ -694,39 +1060,48 @@ scan_url() {
         grep -oP "([a-zA-Z0-9_-]+\\.$target)" | grep "\.$target$" | sort -u >> "$folder/final.txt"
     log "${COLOR_RED}Subdomains found:${COLOR_RESET} $(wc -l < "$folder/final.txt")"
 
-    set_phase "amass: brute/active"
-    log "${COLOR_GREEN}[+] Enumerating subdomains with amass (brute+active)...${COLOR_RESET}"
-    # timeout 420s como hard kill: amass ignora su propio -timeout en algunas versiones y se cuelga indefinidamente
-    timeout 420s amass enum -silent -brute -active -timeout 7 -max-dns-queries 10000 -o "$folder/amass.txt" -d "$target" > /dev/null 2>&1 || true
+    if [[ "$run_brute" == "true" ]]; then
+        set_phase "amass: brute/active"
+        log "${COLOR_GREEN}[+] Enumerating subdomains with amass (brute+active)...${COLOR_RESET}"
+        # timeout 420s como hard kill: amass ignora su propio -timeout en algunas versiones y se cuelga indefinidamente
+        timeout 420s amass enum -silent -brute -active -timeout 10 -max-dns-queries 10000 -o "$folder/amass.txt" -d "$target" > /dev/null 2>&1 || true
 
-    set_phase "ffuf: bruteforcing subdomains"
-    log "${COLOR_GREEN}[+] Bruteforcing subdomains with ffuf...${COLOR_RESET}"
-    ffuf -s -w /opt/Automatic/dic.txt -u https://FUZZ.$target -H "Host: FUZZ.$target" -mc 200,301,302 -fs 0 -t 50 -o "$folder/ffuf_found.txt" -of csv > /dev/null || true
+        if [[ -n "$BRUTE_WORDLIST" && -s "$BRUTE_WORDLIST" ]]; then
+            set_phase "ffuf: bruteforcing subdomains"
+            log "${COLOR_GREEN}[+] Bruteforcing subdomains with ffuf...${COLOR_RESET}"
+            ffuf -noninteractive -s -w "$BRUTE_WORDLIST" -u "https://FUZZ.$target" -H "Host: FUZZ.$target" -mc 200,301,302 -fs 0 -t 50 -o "$folder/ffuf_found.txt" -of csv </dev/null > /dev/null
 
-    if [ -s "$folder/ffuf_found.txt" ]; then
-        while IFS= read -r raw; do
-            [[ -z "$raw" ]] && continue
-            h="${raw#http://}"
-            h="${h#https://}"
-            h="${h%%/*}"
-            h="${h%%:*}"
-            host_in_scope "$h" "$target" && echo "$h"
-        done < <(awk -F',' 'NR>1{print $2}' "$folder/ffuf_found.txt") >> "$folder/final.txt"
-    fi
+            if [ -s "$folder/ffuf_found.txt" ]; then
+                while IFS= read -r raw; do
+                    [[ -z "$raw" ]] && continue
+                    h="${raw#http://}"
+                    h="${h#https://}"
+                    h="${h%%/*}"
+                    h="${h%%:*}"
+                    host_in_scope "$h" "$target" && echo "$h"
+                done < <(awk -F',' 'NR>1{print $2}' "$folder/ffuf_found.txt") >> "$folder/final.txt"
+            fi
 
-    set_phase "dnsx: brute DNS"
-    log "${COLOR_GREEN}[+] Bruteforcing DNS with dnsx...${COLOR_RESET}"
-    dnsx -silent -wordlist /opt/Automatic/dic.txt -domain "$target" -a -resp -o "$folder/dnsx_found.txt" > /dev/null
+            set_phase "dnsx: brute DNS"
+            log "${COLOR_GREEN}[+] Bruteforcing DNS with dnsx...${COLOR_RESET}"
+            dnsx -silent -wordlist "$BRUTE_WORDLIST" -domain "$target" -a -resp -o "$folder/dnsx_found.txt" > /dev/null
 
-    if [ -s "$folder/dnsx_found.txt" ]; then
-        while IFS= read -r h; do
-            [[ -z "$h" ]] && continue
-            host_in_scope "$h" "$target" && echo "$h"
-        done < <(awk '{print $1}' "$folder/dnsx_found.txt") >> "$folder/final.txt"
-    fi
+            if [ -s "$folder/dnsx_found.txt" ]; then
+                while IFS= read -r h; do
+                    [[ -z "$h" ]] && continue
+                    host_in_scope "$h" "$target" && echo "$h"
+                done < <(awk '{print $1}' "$folder/dnsx_found.txt") >> "$folder/final.txt"
+            fi
+        else
+            log "${COLOR_YELLOW}[!] --brute: no está dic.txt (/opt/Automatic/dic.txt ni $SCRIPT_DIR/dic.txt); ffuf y dnsx omitidos${COLOR_RESET}"
+        fi
 
-    if [[ -s "$folder/amass.txt" ]]; then
-        cat "$folder/amass.txt" | grep "\.$target$" >> "$folder/final.txt"
+        if [[ -s "$folder/amass.txt" ]]; then
+            grep "\.$target$" "$folder/amass.txt" >> "$folder/final.txt"
+        fi
+        remove_empty_file "$folder/amass.txt"
+        remove_empty_file "$folder/ffuf_found.txt"
+        remove_empty_file "$folder/dnsx_found.txt"
     fi
     log "${COLOR_RED}Subdomains found:${COLOR_RESET} $(wc -l < "$folder/final.txt")"
 
@@ -767,10 +1142,10 @@ scan_url() {
     # liveInfo = mismas URLs que live.txt pero con columnas extra (status, title, etc.)
     # -silent: sin banner duplicado (httpx ya se lanzó arriba); sigue saliendo la tabla a pantalla/archivo.
     if [[ "$silent" == "true" ]]; then
-        "$HTTPX_BIN" --status-code --content-length -title -fr -fd -silent \
+        "$HTTPX_BIN" --status-code --content-length -title -td -fr -fd -silent \
             -p 80,443,8080,8443,8000,3000,9000 < "$folder/live.txt" > "$folder/liveInfo.txt" 2>/dev/null
     else
-        "$HTTPX_BIN" --status-code --content-length -title -fr -fd -silent \
+        "$HTTPX_BIN" --status-code --content-length -title -td -fr -fd -silent \
             -p 80,443,8080,8443,8000,3000,9000 < "$folder/live.txt" | tee "$folder/liveInfo.txt"
     fi
     # No filtrar liveInfo para mantener la misma cantidad de líneas que live.txt
@@ -786,13 +1161,13 @@ scan_url() {
             "$HTTPX_BIN" -ss -t 10 -system-chrome -srd "$folder/screenshots" -fd -silent \
                 -p 80,443,8080,8443,8000,3000,9000 \
                 -sid 3 -st 15 \
-                < "$folder/live.txt" > /dev/null 2>/dev/null || true
+                < "$folder/live.txt" > /dev/null 2>/dev/null
         else
             # Sin tercer banner ni lista de URLs: solo capturas en disco
             "$HTTPX_BIN" -ss -t 10 -system-chrome -srd "$folder/screenshots" -fd -silent \
                 -p 80,443,8080,8443,8000,3000,9000 \
                 -sid 3 -st 15 \
-                < "$folder/live.txt" > /dev/null || true
+                < "$folder/live.txt" > /dev/null
         fi
     else
         log "${COLOR_YELLOW}[!] live.txt vacío — sin screenshots${COLOR_RESET}"
@@ -805,11 +1180,20 @@ scan_url() {
 
     if [[ "$mode" == "subs" ]]; then
         ticker_suppress_off
+        if [[ "$run_secrets" == "true" ]]; then
+            collect_js_urls "$folder" "$target"
+            run_secrets_phase "$folder" "$target"
+        fi
+        remove_empty_outputs "$folder"
         # Print summary before returning
         log ""
         log "${COLOR_CYAN}[*] ─── Summary for $target ───${COLOR_RESET}"
         log "${COLOR_CYAN}    Subdomains found : ${COLOR_GREEN}${subs_count}${COLOR_RESET}"
         log "${COLOR_CYAN}    Live hosts       : ${COLOR_GREEN}${live_count}${COLOR_RESET}"
+        if [[ "$run_secrets" == "true" ]]; then
+            log "${COLOR_CYAN}    JS URLs          : ${COLOR_GREEN}${js_count}${COLOR_RESET}"
+            log "${COLOR_CYAN}    Secrets verified : ${COLOR_GREEN}${secrets_count}${COLOR_RESET}"
+        fi
         log "${COLOR_CYAN}    Output folder    : ${COLOR_GREEN}${folder}/${COLOR_RESET}"
         log ""
         return 0
@@ -833,7 +1217,7 @@ scan_url() {
             set_phase "waymore: [$waymore_idx/$waymore_total] $domain"
         fi
         local tmpurls="$folder/waymore_${waymore_idx}.tmp"
-        "${TIMEOUT_CMD[@]}" waymore -i "$domain" -mode U -oU "$tmpurls" 2>/dev/null || true
+        "${TIMEOUT_CMD[@]}" waymore -i "$domain" -mode U -oU "$tmpurls" 2>/dev/null
         if [[ -s "$tmpurls" ]]; then
             cat "$tmpurls" >> "$folder/allurls.txt"
         fi
@@ -856,15 +1240,23 @@ scan_url() {
         [[ -n "$folder" ]] && : > "$folder/allurls.txt"
     fi
 
-    urls_count=$(wc -l < "$folder/allurls.txt")
+    urls_count=$(wc -l < "$folder/allurls.txt" 2>/dev/null | tr -d ' ' || echo 0)
+    [[ -z "$urls_count" ]] && urls_count=0
+
+    collect_js_urls "$folder" "$target"
+    run_secrets_phase "$folder" "$target"
 
     if [[ "$mode" == "recon" ]]; then
-        remove_empty_vuln_outputs "$folder"
+        remove_empty_outputs "$folder"
         log ""
         log "${COLOR_CYAN}[*] ─── Summary for $target ───${COLOR_RESET}"
         log "${COLOR_CYAN}    Subdomains found : ${COLOR_GREEN}${subs_count}${COLOR_RESET}"
         log "${COLOR_CYAN}    Live hosts       : ${COLOR_GREEN}${live_count}${COLOR_RESET}"
         log "${COLOR_CYAN}    URLs collected   : ${COLOR_GREEN}${urls_count}${COLOR_RESET}"
+        log "${COLOR_CYAN}    JS URLs          : ${COLOR_GREEN}${js_count}${COLOR_RESET}"
+        if [[ "$run_secrets" == "true" ]]; then
+            log "${COLOR_CYAN}    Secrets verified : ${COLOR_GREEN}${secrets_count}${COLOR_RESET}"
+        fi
         log "${COLOR_CYAN}    Output folder    : ${COLOR_GREEN}${folder}/${COLOR_RESET}"
         log ""
         return 0
@@ -932,12 +1324,12 @@ scan_url() {
             log "${COLOR_GREEN}[✓] CORS checks done ${COLOR_CYAN}($(format_elapsed "$cors_start"))${COLOR_RESET} — ${COLOR_CYAN}${cors_count}${COLOR_RESET} findings"
             set_phase "Summary"
         fi
-        remove_empty_vuln_outputs "$folder"
+        remove_empty_outputs "$folder"
     fi
 
     # Cleanup temp files (ffuf/dnsx/amass/waymore_hosts ya borrados antes)
     rm -f "$folder/allurls.tmp" "$folder/waymore_stderr.log"
-    remove_empty_vuln_outputs "$folder"
+    remove_empty_outputs "$folder"
 
     set_phase "Finished"
     ticker_suppress_on
@@ -950,6 +1342,7 @@ scan_url() {
     log "${COLOR_CYAN}    Subdomains found  : ${COLOR_GREEN}${subs_count}${COLOR_RESET}"
     log "${COLOR_CYAN}    Live hosts        : ${COLOR_GREEN}${live_count}${COLOR_RESET}"
     log "${COLOR_CYAN}    URLs collected    : ${COLOR_GREEN}${urls_count}${COLOR_RESET}"
+    log "${COLOR_CYAN}    JS URLs           : ${COLOR_GREEN}${js_count}${COLOR_RESET}"
     case "$mode" in
         full)
             log "${COLOR_CYAN}    Nuclei findings   : ${COLOR_GREEN}${nuclei_count}${COLOR_RESET}"
@@ -957,6 +1350,9 @@ scan_url() {
             log "${COLOR_CYAN}    CORS vulns        : ${COLOR_GREEN}${cors_count}${COLOR_RESET}"
             ;;
     esac
+    if [[ "$run_secrets" == "true" ]]; then
+        log "${COLOR_CYAN}    Secrets verified  : ${COLOR_GREEN}${secrets_count}${COLOR_RESET}"
+    fi
     log "${COLOR_CYAN}    Output folder     : ${COLOR_GREEN}${folder}/${COLOR_RESET}"
     if [[ -n "$LOG_FILE" ]]; then
         log "${COLOR_CYAN}    Log file          : ${COLOR_GREEN}${LOG_FILE}${COLOR_RESET}"

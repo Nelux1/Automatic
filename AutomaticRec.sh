@@ -483,6 +483,12 @@ fi
 
 CURL_OPTS=(--connect-timeout 10 --max-time 30 --retry 2 --retry-delay 2 --retry-connrefused -s)
 
+# waymore vive en su propio entorno (uv). python3 del sistema no lo ve.
+waymore_cli_ok() {
+    command -v waymore >/dev/null 2>&1 || return 1
+    waymore -h >/dev/null 2>&1
+}
+
 check_deps() {
     local missing=()
     local deps=(python3 assetfinder subfinder curl)
@@ -490,8 +496,7 @@ check_deps() {
         deps+=(amass ffuf dnsx)
     fi
     if [[ "$mode" == "recon" || "$mode" == "full" ]]; then
-        if ! { command -v waymore >/dev/null 2>&1 && python3 -c "import waymore" >/dev/null 2>&1; } \
-            && ! command -v urlfinder >/dev/null 2>&1; then
+        if ! waymore_cli_ok && ! command -v urlfinder >/dev/null 2>&1; then
             missing+=(urlfinder)
         fi
     fi
@@ -987,6 +992,19 @@ run_recon() {
 
 # Solo FQDN == target o *.target (mismo criterio que grep "\.$target$"); evita mezclar otros TLD
 # si grep "$target" coincide por subcadena o salida ruidosa de ffuf/dnsx.
+# crt.sh y RapidDNS: varios niveles (a.b.dominio), no solo uno.
+append_extracted_hosts() {
+    local src="$1"
+    local dest="$2"
+    local domain="$3"
+    local domain_re
+    domain_re=$(printf '%s' "$domain" | sed 's/\./\\./g')
+    sed -e 's/<[^>]*>//g' < "$src" | \
+        grep -oiP "(?:[a-zA-Z0-9_-]+\\.)+${domain_re}" | \
+        tr '[:upper:]' '[:lower:]' | \
+        sort -u >> "$dest"
+}
+
 host_in_scope() {
     local h="$1"
     local t="$2"
@@ -1050,8 +1068,7 @@ scan_url() {
     if [[ ! -s "$rapiddns_cache" ]]; then
         curl "${CURL_OPTS[@]}" "https://rapiddns.io/subdomain/$target?full=1" > "$rapiddns_cache"
     fi
-    sed -e 's/<[^>]*>//g' < "$rapiddns_cache" | \
-        grep -oP "([a-zA-Z0-9_-]+\\.$target)" | grep "\.$target$" | sort -u >> "$folder/final.txt"
+    append_extracted_hosts "$rapiddns_cache" "$folder/final.txt" "$target"
     log "${COLOR_RED}Subdomains found:${COLOR_RESET} $(wc -l < "$folder/final.txt")"
 
     set_phase "crt.sh: enumerating subdomains"
@@ -1059,8 +1076,7 @@ scan_url() {
     if [[ ! -s "$crt_cache" ]]; then
         curl "${CURL_OPTS[@]}" "https://crt.sh/?q=%25.$target" > "$crt_cache"
     fi
-    sed -e 's/<[^>]*>//g' < "$crt_cache" | \
-        grep -oP "([a-zA-Z0-9_-]+\\.$target)" | grep "\.$target$" | sort -u >> "$folder/final.txt"
+    append_extracted_hosts "$crt_cache" "$folder/final.txt" "$target"
     log "${COLOR_RED}Subdomains found:${COLOR_RESET} $(wc -l < "$folder/final.txt")"
 
     if [[ "$run_brute" == "true" ]]; then
@@ -1213,7 +1229,7 @@ scan_url() {
     local urls_start urls_idx=0 urls_total waymore_ok="false"
     urls_total=$(wc -l < "$folder/waymore_hosts.txt")
     urls_start=$(date +%s)
-    if command -v waymore >/dev/null 2>&1 && python3 -c "import waymore" >/dev/null 2>&1; then
+    if waymore_cli_ok; then
         waymore_ok="true"
         log "${COLOR_GREEN}[+] waymore (Wayback, Common Crawl, etc.)...${COLOR_RESET}"
         while IFS= read -r domain; do
@@ -1231,7 +1247,7 @@ scan_url() {
             [[ "$INTERRUPTED" -eq 1 ]] && break
         done < "$folder/waymore_hosts.txt"
     else
-        log "${COLOR_YELLOW}[!] waymore no está usable (el comando existe pero falta el módulo Python). Sigo con urlfinder.${COLOR_RESET}"
+        log "${COLOR_YELLOW}[!] waymore no responde. Sigo con urlfinder.${COLOR_RESET}"
     fi
     if [[ ! -s "$folder/allurls.txt" && "$INTERRUPTED" -ne 1 ]]; then
         if command -v urlfinder >/dev/null 2>&1; then
@@ -1262,10 +1278,50 @@ scan_url() {
     fi
     rm -f "$folder/waymore_hosts.txt"
     if [[ -s "$folder/allurls.txt" ]]; then
-        sort -u "$folder/allurls.txt" -o "$folder/allurls.txt"
-        grep -E -iv "$url_filter_re" "$folder/allurls.txt" > "$folder/allurls.tmp" && mv "$folder/allurls.tmp" "$folder/allurls.txt"
+        # Quita HTML, comillas raras y líneas que son solo un guion. Deja las URLs reales.
+        python3 - "$folder/allurls.txt" "$url_filter_re" <<'PY'
+import re
+import sys
+from pathlib import Path
+from urllib.parse import urlsplit
+
+path, ext_re = sys.argv[1], sys.argv[2]
+src = Path(path)
+ext = re.compile(ext_re, re.I)
+trail = re.compile(r"""[\s"'`´’“”<>]+$""")
+html = re.compile(r"<[^>]*>")
+only_punct = re.compile(r"^[\W_]+$", re.UNICODE)
+seen = []
+have = set()
+for raw in src.read_text(errors="ignore").splitlines():
+    url = html.sub("", raw.strip())
+    url = url.replace("’", "").replace("‘", "").replace("“", "").replace("”", "")
+    url = url.replace("–", "").replace("—", "")
+    previous = None
+    while url and previous != url:
+        previous = url
+        url = trail.sub("", url).strip()
+    if not url.startswith(("http://", "https://")):
+        continue
+    if "<" in url or ">" in url:
+        continue
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        continue
+    if not parts.netloc:
+        continue
+    body = (parts.path or "").strip("/")
+    if body and only_punct.match(body) and not parts.query:
+        continue
+    if ext.search(parts.path or ""):
+        continue
+    if url not in have:
+        have.add(url)
+        seen.append(url)
+src.write_text(("\n".join(seen) + "\n") if seen else "", encoding="utf-8")
+PY
     fi
-    rm -f "$folder/allurls.tmp"
     ticker_suppress_off
     if [[ "$silent" != "true" ]]; then
         log "${COLOR_GREEN}[✓] URLs finished ${COLOR_CYAN}($(format_elapsed "$urls_start"))${COLOR_RESET} — ${COLOR_CYAN}$(wc -l < "$folder/allurls.txt")${COLOR_RESET} URLs"

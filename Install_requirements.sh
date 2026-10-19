@@ -21,7 +21,7 @@ INSTALLER_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 INSTALL_ROOT="/opt/AutomaticRec"
 BIN_DIR="$INSTALL_ROOT/bin"
 VENV="$INSTALL_ROOT/venv"
-BIN_LINK="/usr/bin/AutoRec"
+BIN_LINK="/usr/bin/Autorec"
 GO_MIN="1.24"
 
 for required in AutomaticRec.sh recon_inverso.py dic.txt requirements.txt; do
@@ -253,7 +253,7 @@ if [[ "$missing" -ne 0 ]]; then
 fi
 
 echo "[✔] Listo. Desde cualquier directorio:"
-echo "       AutoRec -u ejemplo.com -a"
+echo "       Autorec -u ejemplo.com -a"
 echo "    El mismo script también responde como AutomaticRec."
 echo "    Archivos: $INSTALL_ROOT"
 echo "    Binarios: $BIN_DIR  (también en /usr/local/bin)"

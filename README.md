@@ -8,10 +8,10 @@
 
 ## How it works
 
-`AutoRec` first runs `recon_inverso.py` to map the full infrastructure of a company (ASNs, IP ranges, related domains, and acquisitions), then runs the full subdomain enumeration and scanning pipeline against every discovered domain.
+`Autorec` first runs `recon_inverso.py` to map the full infrastructure of a company (ASNs, IP ranges, related domains, and acquisitions), then runs the full subdomain enumeration and scanning pipeline against every discovered domain.
 
 ```
-AutoRec -u target.com
+Autorec -u target.com
         │
         ├─ [1] recon_inverso.py        → Finds all company-owned domains (incl. acquisitions)
         │       Uses: ASN lookup, reverse DNS, WHOIS ownership verification
@@ -93,14 +93,14 @@ CHAOS_KEY="your_key_here"
 sudo bash Install_requirements.sh
 ```
 
-Debian, Ubuntu, or Kali. The script installs Go if it is missing, puts `AutomaticRec.sh` and every tool it runs under `/opt/AutomaticRec`, and links that script into `/usr/bin/AutoRec` (and `/usr/bin/AutomaticRec`). It exits with an error if any required tool is missing or does not start. Open a new terminal afterwards so `/opt/AutomaticRec/bin` is on `PATH`.
+Debian, Ubuntu, or Kali. The script installs Go if it is missing, puts `AutomaticRec.sh` and every tool it runs under `/opt/AutomaticRec`, and links that script into `/usr/bin/Autorec` (and `/usr/bin/AutomaticRec`). It exits with an error if any required tool is missing or does not start. Open a new terminal afterwards so `/opt/AutomaticRec/bin` is on `PATH`.
 
 ---
 
 ## Usage
 
 ```
-AutoRec [options]
+Autorec [options]
 ```
 
 ### Basic flags
@@ -154,30 +154,30 @@ Use **`-r`** for passive/historical URLs (waymore) without vuln scans; use **`-a
 
 ```bash
 # Full scan on a single target
-AutoRec -u example.com -a
+Autorec -u example.com -a
 
 # Subdomain enumeration only
-AutoRec -u example.com -s
+Autorec -u example.com -s
 
 # Recon + waymore (allurls.txt), no vuln scans
-AutoRec -u example.com -r
+Autorec -u example.com -r
 
 # Scan only the specified domain (no acquisition expansion)
-AutoRec -u example.com -a -only
+Autorec -u example.com -a -only
 
 # Exclude specific domains from scope
-AutoRec -u example.com -a -x staging.example.com,legacy.example.com
+Autorec -u example.com -a -x staging.example.com,legacy.example.com
 
 # Multiple targets in parallel
-AutoRec -l targets.txt -a -j 3
+Autorec -l targets.txt -a -j 3
 
 # Full scan, silent, with recon tuning
-AutoRec -u example.com -a --silent \
+Autorec -u example.com -a --silent \
   --recon-max-ips 500 \
   --recon-max-domains-sub 5
 
 # Skip WHOIS checks (faster, may include more noise)
-AutoRec -u example.com -a --recon-skip-ownership-check
+Autorec -u example.com -a --recon-skip-ownership-check
 ```
 
 ---
@@ -201,7 +201,7 @@ Intermediate reverse-recon files under `scan_results/` are removed after use (no
 
 ## Domain scope explained
 
-By default, `AutoRec` does **full company scope**:
+By default, `Autorec` does **full company scope**:
 - Discovers all domains owned by the company via ASN + reverse DNS
 - Verifies ownership with WHOIS (filters out shared hosting neighbors)
 - Includes subsidiaries and acquisitions (different domain names, same registrant)

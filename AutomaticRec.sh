@@ -320,16 +320,16 @@ help_message() {
     echo "  -u url     Scan a single URL (bare domain, e.g. example.com)"
     echo "  -o output  Specify output folder name"
     echo "  -s         Perform only subdomain enumeration"
-    echo "  -r         Recon: subdominios + URLs históricas (waymore, o urlfinder si waymore no trae nada)"
+    echo "  -r         Recon: subdomains + historical URLs (waymore, or urlfinder if waymore returns nothing)"
     echo "  -only      Use only the specified domain (no extra recon domains)"
-    echo "  --recon-all-domains  Incluir del recon todos los apex del JSON (por defecto solo subdominios de -u)"
+    echo "  --recon-all-domains  Include every apex from the recon JSON (default: only subdomains of -u)"
     echo "  -x list    Exclude domains/subdomains (CSV: a.com,b.a.com)"
     echo "  --silent   Silence screen output"
     echo "  --timeout N  Global timeout (seconds) for tools without one"
     echo "  -j N       Parallel targets (only with -l)"
     echo "  --refresh-cache  Ignore RapidDNS/crt.sh local cache"
-    echo "  --log      Crear automaticrec.log bajo -o (por defecto no se crea)"
-    echo "  --no-log   No crear automaticrec.log (comportamiento por defecto)"
+    echo "  --log      Write automaticrec.log under -o (off by default)"
+    echo "  --no-log   Do not write automaticrec.log (default)"
     echo "  --recon-max-ips N            Max IPs from ASN (recon)"
     echo "  --recon-max-ips-reverse N    Max IPs for reverse DNS (recon)"
     echo "  --recon-max-domains-sub N    Max domains for subdomain search (recon)"
@@ -337,9 +337,9 @@ help_message() {
     echo "  --recon-threads N            Threads for recon_inverso"
     echo "  --recon-aws-cache-ttl N      AWS cache TTL (seconds)"
     echo "  --recon-skip-ownership-check Skip WHOIS ownership check (recon)"
-    echo "  --no-reverse-recon       Skip recon_inverso.py (ASN/reverse IP; puede tardar mucho en .gov)"
-    echo "  --brute                  Amass brute+active, ffuf y dnsx (lento; por defecto apagado)"
-    echo "  --secrets                Tras armar js.txt, descarga JS/sourcemaps y guarda solo secretos verificados"
+    echo "  --no-reverse-recon       Skip recon_inverso.py (ASN/reverse IP; can take a long time on .gov)"
+    echo "  --brute                  Amass brute+active, ffuf and dnsx (slow; off by default)"
+    echo "  --secrets                After building js.txt, download JS/sourcemaps and keep only verified secrets"
     exit 1
 }
 
@@ -725,19 +725,19 @@ run_secrets_phase() {
         return 0
     fi
     if [[ ! -s "$folder/js.txt" ]]; then
-        log "${COLOR_YELLOW}[!] Secrets: js.txt vacío, nada que escanear${COLOR_RESET}"
+        log "${COLOR_YELLOW}[!] Secrets: js.txt is empty, nothing to scan${COLOR_RESET}"
         remove_empty_file "$folder/js.txt"
         remove_empty_file "$folder/secrets.jsonl"
         return 0
     fi
     if ! command -v trufflehog >/dev/null 2>&1; then
-        warn "${COLOR_RED}[-] trufflehog no está en PATH, secrets omitido${COLOR_RESET}"
+        warn "${COLOR_RED}[-] trufflehog is not in PATH, skipping secrets${COLOR_RESET}"
         return 0
     fi
     local work downloaded
     work=$(mktemp -d "$folder/.secrets_work.XXXXXX")
     set_phase "secrets: downloading JS"
-    log "${COLOR_GREEN}[+] Secrets: descargando hasta ${max_js} JS/sourcemaps...${COLOR_RESET}"
+    log "${COLOR_GREEN}[+] Secrets: downloading up to ${max_js} JS/sourcemaps...${COLOR_RESET}"
     downloaded=$(python3 - "$folder" "$target" "$max_js" "$work" <<'PY'
 import hashlib, json, os, re, ssl, subprocess, sys
 from shutil import which
@@ -875,13 +875,13 @@ PY
     downloaded=$(echo "$downloaded" | tail -n 1 | tr -d ' ')
     [[ "$downloaded" =~ ^[0-9]+$ ]] || downloaded=0
     if [[ "$downloaded" -eq 0 ]]; then
-        log "${COLOR_YELLOW}[!] Secrets: no se pudo bajar ningún JS${COLOR_RESET}"
+        log "${COLOR_YELLOW}[!] Secrets: could not download any JS${COLOR_RESET}"
         rm -rf "$work"
         remove_empty_file "$folder/secrets.jsonl"
         return 0
     fi
     set_phase "secrets: trufflehog verified"
-    log "${COLOR_GREEN}[+] Secrets: trufflehog --results=verified sobre ${downloaded} archivos${COLOR_RESET}"
+    log "${COLOR_GREEN}[+] Secrets: trufflehog --results=verified on ${downloaded} files${COLOR_RESET}"
     trufflehog filesystem --results=verified --json --no-update --no-color "$work/bodies" \
         > "$work/th.jsonl" 2>"$work/th.err" || true
     secrets_count=$(python3 - "$folder" "$work" <<'PY'
@@ -998,7 +998,7 @@ run_recon() {
     local recon_json="recon_${target}.json"
     mkdir -p "$output"
     if [[ "$no_reverse_recon" == "true" ]]; then
-        log "${COLOR_YELLOW}[~] Reverse recon omitido (--no-reverse-recon) → solo enumeración + waymore${COLOR_RESET}"
+        log "${COLOR_YELLOW}[~] Reverse recon skipped (--no-reverse-recon) → enumeration + waymore only${COLOR_RESET}"
         [[ -n "$recon_seed" ]] && : > "$recon_seed"
         return
     fi
@@ -1103,7 +1103,7 @@ scan_url() {
         if ! command -v chaos >/dev/null 2>&1; then
             log "${COLOR_YELLOW}[!] chaos not installed, skipping${COLOR_RESET}"
         elif [[ -z "${CHAOS_KEY:-}" ]]; then
-            log "${COLOR_YELLOW}[!] CHAOS_KEY not set, skipping chaos (ponela en ~/.config/automaticrec.conf o $SCRIPT_DIR/AutomaticRec.conf)${COLOR_RESET}"
+            log "${COLOR_YELLOW}[!] CHAOS_KEY not set, skipping chaos (set it in ~/.config/automaticrec.conf or $SCRIPT_DIR/AutomaticRec.conf)${COLOR_RESET}"
         fi
     fi
 
@@ -1156,7 +1156,7 @@ scan_url() {
                 done < <(awk '{print $1}' "$folder/dnsx_found.txt") >> "$folder/final.txt"
             fi
         else
-            log "${COLOR_YELLOW}[!] --brute: no está dic.txt (/opt/Automatic/dic.txt ni $SCRIPT_DIR/dic.txt); ffuf y dnsx omitidos${COLOR_RESET}"
+            log "${COLOR_YELLOW}[!] --brute: dic.txt not found (/opt/AutomaticRec/dic.txt, /opt/Automatic/dic.txt, or $SCRIPT_DIR/dic.txt); skipping ffuf and dnsx${COLOR_RESET}"
         fi
 
         if [[ -s "$folder/amass.txt" ]]; then
@@ -1180,7 +1180,7 @@ scan_url() {
     log "${COLOR_GREEN}[+] Checking live subdomains with httpx...${COLOR_RESET}"
     # Listas enormes: httpx puede tardar horas; sin línea Time: (ticker suprimido); al terminar se muestra duración + hosts.
     if [[ "$subs_count" -gt 8000 && "$silent" != "true" ]]; then
-        warn "${COLOR_YELLOW}[!] Muchos subdominios ($subs_count): httpx tardará bastante (varios puertos por host). No es un cuelgue; al terminar verás tiempo y cantidad de hosts vivos. Considera -only o acotar scope.${COLOR_RESET}"
+        warn "${COLOR_YELLOW}[!] Many subdomains ($subs_count): httpx will take a while (several ports per host). It is not stuck; when it finishes you will see the elapsed time and the live host count. Consider -only or a smaller scope.${COLOR_RESET}"
     fi
     # live.txt = única lista de subdominios vivos; waymore, nuclei y el resto trabajan siempre desde live.txt
     # -fd: filtra respuestas casi duplicadas en httpx; sort -u sigue deduplicando live.txt en disco.
@@ -1199,7 +1199,7 @@ scan_url() {
         log "${COLOR_GREEN}[✓] httpx live hosts ${COLOR_CYAN}($(format_elapsed "$httpx_live_start"))${COLOR_RESET} — ${COLOR_CYAN}${live_count}${COLOR_RESET} hosts"
     fi
     if [[ "$live_count" -eq 0 && "$subs_count" -gt 0 ]]; then
-        log "${COLOR_YELLOW}[!] httpx: 0 hosts vivos con puertos probados; waymore/nuclei no tendrán objetivos (red, DNS, firewall o sin HTTP/S en 80/443/…)${COLOR_RESET}"
+        log "${COLOR_YELLOW}[!] httpx: 0 live hosts on the probed ports; waymore/nuclei will have no targets (network, DNS, firewall, or no HTTP/S on 80/443/…)${COLOR_RESET}"
     fi
 
     # liveInfo = mismas URLs que live.txt pero con columnas extra (status, title, etc.)
@@ -1233,7 +1233,7 @@ scan_url() {
                 < "$folder/live.txt" > /dev/null
         fi
     else
-        log "${COLOR_YELLOW}[!] live.txt vacío — sin screenshots${COLOR_RESET}"
+        log "${COLOR_YELLOW}[!] live.txt is empty — no screenshots${COLOR_RESET}"
     fi
     [[ "$silent" != "true" ]] && log ""
 
@@ -1291,14 +1291,14 @@ scan_url() {
             [[ "$INTERRUPTED" -eq 1 ]] && break
         done < "$folder/waymore_hosts.txt"
     else
-        log "${COLOR_YELLOW}[!] waymore no responde. Sigo con urlfinder.${COLOR_RESET}"
+        log "${COLOR_YELLOW}[!] waymore is not responding. Continuing with urlfinder.${COLOR_RESET}"
     fi
     if [[ ! -s "$folder/allurls.txt" && "$INTERRUPTED" -ne 1 ]]; then
         if command -v urlfinder >/dev/null 2>&1; then
             if [[ "$waymore_ok" == "true" ]]; then
-                log "${COLOR_YELLOW}[!] waymore no dejó URLs. Sigo con urlfinder.${COLOR_RESET}"
+                log "${COLOR_YELLOW}[!] waymore returned no URLs. Continuing with urlfinder.${COLOR_RESET}"
             else
-                log "${COLOR_GREEN}[+] urlfinder (Wayback y otras fuentes)...${COLOR_RESET}"
+                log "${COLOR_GREEN}[+] urlfinder (Wayback and other sources)...${COLOR_RESET}"
             fi
             urls_idx=0
             while IFS= read -r domain; do
@@ -1317,7 +1317,7 @@ scan_url() {
                 [[ "$INTERRUPTED" -eq 1 ]] && break
             done < "$folder/waymore_hosts.txt"
         else
-            warn "${COLOR_YELLOW}[!] No hay urlfinder en PATH y waymore no trajo URLs.${COLOR_RESET}"
+            warn "${COLOR_YELLOW}[!] urlfinder is not in PATH and waymore returned no URLs.${COLOR_RESET}"
         fi
     fi
     rm -f "$folder/waymore_hosts.txt"
@@ -1401,7 +1401,7 @@ PY
     if [[ "$mode" == "full" ]]; then
         set_phase "nuclei/xss/cors"
         if [[ ! -s "$folder/live.txt" ]]; then
-            log "${COLOR_YELLOW}[!] Sin hosts en live.txt — nuclei / XSS / CORS omitidos (nada que escanear)${COLOR_RESET}"
+            log "${COLOR_YELLOW}[!] No hosts in live.txt — skipping nuclei / XSS / CORS (nothing to scan)${COLOR_RESET}"
             nuclei_count=0
             xss_count=0
             cors_count=0

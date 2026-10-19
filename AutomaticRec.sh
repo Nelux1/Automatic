@@ -26,6 +26,15 @@ COLOR_RESET="\033[0m"
 # Load optional config file for env vars (e.g., CHAOS_KEY)
 # readlink -f: si el script está en /usr/bin vía symlink, resolvemos al directorio real (recon_inverso.py, conf).
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+# Las herramientas que instala Install_requirements.sh viven acá. Si el shell
+# no cargó /etc/profile.d, igual tienen que encontrarse.
+if [[ -d /opt/AutomaticRec/bin ]]; then
+    case ":$PATH:" in
+        *:/opt/AutomaticRec/bin:*) ;;
+        *) PATH="/opt/AutomaticRec/bin:${PATH}" ;;
+    esac
+    export PATH
+fi
 CONFIG_FILE="${CONFIG_FILE:-$SCRIPT_DIR/AutomaticRec.conf}"
 RECON_SCRIPT="${SCRIPT_DIR}/recon_inverso.py"
 # 1) Instalación: /opt/AutomaticRec/AutomaticRec.conf

@@ -99,19 +99,37 @@ export GOBIN="$BIN_DIR"
 export GOPATH="$INSTALL_ROOT/.gopath"
 export GOCACHE="$INSTALL_ROOT/.gocache"
 
+FAILED_TOOLS=()
 install_go_tool() {
   local name="$1"
   local module="$2"
-  if [[ -x "$BIN_DIR/$name" ]]; then
-    echo "[✔] $name ya está en $BIN_DIR"
-    return 0
+  # go install nombra el binario como el último tramo del módulo.
+  # trufflehog/v3 queda como "v3"; el tercer argumento lo renombra.
+  local produced="${3:-$name}"
+  if [[ ! -x "$BIN_DIR/$name" && -x "$BIN_DIR/$produced" ]]; then
+    mv -f "$BIN_DIR/$produced" "$BIN_DIR/$name"
   fi
-  echo "[+] Instalando $name ..."
-  go install "$module"
   if [[ ! -x "$BIN_DIR/$name" ]]; then
-    echo "[!] $name no quedó en $BIN_DIR (módulo: $module)" >&2
-    return 1
+    echo "[+] Instalando $name ..."
+    if ! go install "$module"; then
+      echo "[!] Falló la compilación de $name ($module)" >&2
+      FAILED_TOOLS+=("$name")
+      return 0
+    fi
+    if [[ "$produced" != "$name" && -x "$BIN_DIR/$produced" ]]; then
+      mv -f "$BIN_DIR/$produced" "$BIN_DIR/$name"
+    fi
+    if [[ ! -x "$BIN_DIR/$name" ]]; then
+      echo "[!] $name no quedó en $BIN_DIR (módulo: $module)" >&2
+      ls -l "$BIN_DIR" >&2 || true
+      FAILED_TOOLS+=("$name")
+      return 0
+    fi
+  else
+    echo "[✔] $name ya está en $BIN_DIR"
   fi
+  chmod a+rx "$BIN_DIR/$name"
+  ln -sfn "$BIN_DIR/$name" "/usr/local/bin/$name"
 }
 
 # Binarios que AutomaticRec.sh invoca (enum, brute, URLs, nuclei, XSS, CORS, secrets).
@@ -127,7 +145,7 @@ install_go_tool freq 'github.com/takshal/freq@latest'
 install_go_tool rush 'github.com/shenwei356/rush@latest'
 install_go_tool urlfinder 'github.com/projectdiscovery/urlfinder/cmd/urlfinder@latest'
 install_go_tool amass 'github.com/owasp-amass/amass/v4/cmd/amass@latest'
-install_go_tool trufflehog 'github.com/trufflesecurity/trufflehog/v3@latest'
+install_go_tool trufflehog 'github.com/trufflesecurity/trufflehog/v3@latest' v3
 
 echo "[*] Entorno Python de waymore y uro en $VENV ..."
 if [[ ! -x "$VENV/bin/python3" ]]; then
@@ -157,7 +175,9 @@ ln -sfn "$INSTALL_ROOT/AutomaticRec.sh" /usr/bin/AutomaticRec
 # /usr/local/bin ya está en el PATH por defecto. El perfil antepone el directorio nuevo
 # para que el httpx de ProjectDiscovery gane sobre un httpx de Python.
 for name in assetfinder subfinder chaos httpx dnsx ffuf nuclei qsreplace freq rush urlfinder amass trufflehog waymore uro; do
-  ln -sfn "$BIN_DIR/$name" "/usr/local/bin/$name"
+  if [[ -x "$BIN_DIR/$name" ]]; then
+    ln -sfn "$BIN_DIR/$name" "/usr/local/bin/$name"
+  fi
 done
 chmod -R a+rX "$BIN_DIR" "$VENV" "$INSTALL_ROOT/AutomaticRec.sh" "$INSTALL_ROOT/recon_inverso.py" "$INSTALL_ROOT/dic.txt"
 

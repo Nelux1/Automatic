@@ -145,7 +145,54 @@ install_go_tool freq 'github.com/takshal/freq@latest'
 install_go_tool rush 'github.com/shenwei356/rush@latest'
 install_go_tool urlfinder 'github.com/projectdiscovery/urlfinder/cmd/urlfinder@latest'
 install_go_tool amass 'github.com/owasp-amass/amass/v4/cmd/amass@latest'
-install_go_tool trufflehog 'github.com/trufflesecurity/trufflehog/v3@latest' v3
+
+# go install rechaza este módulo: el go.mod trae directivas replace.
+install_trufflehog() {
+  local arch ver url tmp tag_url
+  if [[ -x "$BIN_DIR/trufflehog" ]]; then
+    echo "[✔] trufflehog ya está en $BIN_DIR"
+    chmod a+rx "$BIN_DIR/trufflehog"
+    ln -sfn "$BIN_DIR/trufflehog" /usr/local/bin/trufflehog
+    return 0
+  fi
+  case "$(uname -m)" in
+    x86_64) arch=amd64 ;;
+    aarch64|arm64) arch=arm64 ;;
+    *)
+      echo "[!] Arquitectura no soportada para trufflehog: $(uname -m)" >&2
+      FAILED_TOOLS+=("trufflehog")
+      return 0
+      ;;
+  esac
+  echo "[+] Bajando el binario oficial de trufflehog ..."
+  if ! tag_url="$(curl -fsSL -o /dev/null -w '%{url_effective}' https://github.com/trufflesecurity/trufflehog/releases/latest)"; then
+    echo "[!] No se pudo consultar la última versión de trufflehog" >&2
+    FAILED_TOOLS+=("trufflehog")
+    return 0
+  fi
+  ver="${tag_url##*/}"
+  ver="${ver#v}"
+  url="https://github.com/trufflesecurity/trufflehog/releases/download/v${ver}/trufflehog_${ver}_linux_${arch}.tar.gz"
+  tmp="$(mktemp -d)"
+  if ! curl -fL --retry 3 -o "$tmp/trufflehog.tar.gz" "$url"; then
+    echo "[!] No se pudo bajar trufflehog desde $url" >&2
+    rm -rf "$tmp"
+    FAILED_TOOLS+=("trufflehog")
+    return 0
+  fi
+  tar -C "$tmp" -xzf "$tmp/trufflehog.tar.gz"
+  if [[ ! -f "$tmp/trufflehog" ]]; then
+    echo "[!] El paquete de trufflehog no trae el binario" >&2
+    rm -rf "$tmp"
+    FAILED_TOOLS+=("trufflehog")
+    return 0
+  fi
+  install -m 755 "$tmp/trufflehog" "$BIN_DIR/trufflehog"
+  ln -sfn "$BIN_DIR/trufflehog" /usr/local/bin/trufflehog
+  rm -rf "$tmp"
+  echo "[✔] trufflehog ${ver}"
+}
+install_trufflehog
 
 echo "[*] Entorno Python de waymore y uro en $VENV ..."
 if [[ ! -x "$VENV/bin/python3" ]]; then

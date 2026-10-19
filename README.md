@@ -64,7 +64,7 @@ These are the binaries `AutomaticRec.sh` actually runs. `freq` is the Go tool us
 | `uro` | virtualenv CLI |
 | `freq` | `go install github.com/takshal/freq@latest` |
 | `rush` | `go install github.com/shenwei356/rush@latest` |
-| `trufflehog` | `go install github.com/trufflesecurity/trufflehog/v3@latest` (only for `--secrets`) |
+| `trufflehog` | release binary from GitHub (only for `--secrets`; `go install` cannot build this module) |
 | `whois`, `dig` | `apt install whois dnsutils` |
 | Chrome or Chromium | screenshots (`httpx -system-chrome`) |
 

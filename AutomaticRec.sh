@@ -443,6 +443,7 @@ _is_native_bin() {
 
 _find_httpx() {
     local candidates=(
+        "/opt/AutomaticRec/bin/httpx"
         "$HOME/go/bin/httpx"
         "/home/$USER/go/bin/httpx"
         "/root/go/bin/httpx"
@@ -472,7 +473,9 @@ _find_httpx() {
 HTTPX_BIN="$(_find_httpx)"
 
 if [[ -z "${BRUTE_WORDLIST:-}" ]]; then
-    if [[ -s /opt/Automatic/dic.txt ]]; then
+    if [[ -s /opt/AutomaticRec/dic.txt ]]; then
+        BRUTE_WORDLIST="/opt/AutomaticRec/dic.txt"
+    elif [[ -s /opt/Automatic/dic.txt ]]; then
         BRUTE_WORDLIST="/opt/Automatic/dic.txt"
     elif [[ -s "$SCRIPT_DIR/dic.txt" ]]; then
         BRUTE_WORDLIST="$SCRIPT_DIR/dic.txt"

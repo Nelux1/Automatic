@@ -36,32 +36,44 @@ The key differentiator: domains discovered via **reverse DNS are accepted only i
 - Python 3.8+
 - Go (for installing Go-based tools)
 ### Python dependencies
+`recon_inverso.py` imports `dnspython` and `requests` on the system `python3`:
+
 ```
 pip3 install -r requirements.txt
 ```
 
+`waymore` and `uro` are command-line tools. The installer puts them in their own virtualenv; do not `pip install` them over the system Python.
+
 ### External tools (must be in PATH)
+
+These are the binaries `AutomaticRec.sh` actually runs. `freq` is the Go tool used in the XSS pipeline, and `rush` is [shenwei356/rush](https://github.com/shenwei356/rush) (the parallel runner). They are not the PyPI package `freq` nor the Rust crate `rush-cli`.
 
 | Tool | Install |
 |------|---------|
 | `assetfinder` | `go install github.com/tomnomnom/assetfinder@latest` |
 | `subfinder` | `go install github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest` |
 | `chaos` | `go install github.com/projectdiscovery/chaos-client/cmd/chaos@latest` |
-| `amass` | `go install github.com/owasp-amass/amass/v4/...@latest` |
+| `amass` | `go install github.com/owasp-amass/amass/v4/cmd/amass@latest` |
 | `ffuf` | `go install github.com/ffuf/ffuf@latest` |
 | `dnsx` | `go install github.com/projectdiscovery/dnsx/cmd/dnsx@latest` |
-| `httpx` | `go install github.com/projectdiscovery/httpx/cmd/httpx@latest` |
-| `waymore` | `pip3 install waymore` |
+| `httpx` | `go install github.com/projectdiscovery/httpx/cmd/httpx@latest` (ProjectDiscovery binary, not Python `httpx`) |
+| `urlfinder` | `go install github.com/projectdiscovery/urlfinder/cmd/urlfinder@latest` |
+| `waymore` | virtualenv CLI (`waymore -h` must succeed) |
 | `nuclei` | `go install github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest` |
 | `qsreplace` | `go install github.com/tomnomnom/qsreplace@latest` |
-| `uro` | `pip3 install uro` |
-| `freq` | `pip3 install freq` |
-| `rush` | `cargo install rush-cli` |
+| `uro` | virtualenv CLI |
+| `freq` | `go install github.com/takshal/freq@latest` |
+| `rush` | `go install github.com/shenwei356/rush@latest` |
+| `trufflehog` | `go install github.com/trufflesecurity/trufflehog/v3@latest` (only for `--secrets`) |
 | `whois`, `dig` | `apt install whois dnsutils` |
+| Chrome or Chromium | screenshots (`httpx -system-chrome`) |
 
 ### Wordlist
-The script expects a wordlist at `/opt/Automatic/dic.txt`.
-You can change this path inside `AutomaticRec.sh` if needed.
+With `--brute`, the script looks for a wordlist in this order:
+
+1. `/opt/AutomaticRec/dic.txt` (written by the installer)
+2. `/opt/Automatic/dic.txt` (older installs)
+3. `dic.txt` next to `AutomaticRec.sh`
 
 ### Optional API key
 To enable Chaos, set your API key:
@@ -81,7 +93,7 @@ CHAOS_KEY="your_key_here"
 sudo bash Install_requirements.sh
 ```
 
-This installs all Go tools, Python dependencies, and system packages automatically.
+Debian, Ubuntu, or Kali. The script installs Go if it is missing, puts `AutomaticRec.sh` and every tool it runs under `/opt/AutomaticRec`, links `AutomaticRec` into `/usr/bin`, and exits with an error if any required tool is missing or does not start. Open a new terminal afterwards so `/opt/AutomaticRec/bin` is on `PATH`.
 
 ---
 

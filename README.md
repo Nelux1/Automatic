@@ -93,7 +93,7 @@ CHAOS_KEY="your_key_here"
 sudo bash Install_requirements.sh
 ```
 
-Debian, Ubuntu, or Kali. The script installs Go if it is missing, puts `AutomaticRec.sh` and every tool it runs under `/opt/AutomaticRec`, links `AutomaticRec` into `/usr/bin`, and exits with an error if any required tool is missing or does not start. Open a new terminal afterwards so `/opt/AutomaticRec/bin` is on `PATH`.
+Debian, Ubuntu, or Kali. The script installs Go if it is missing, puts `AutomaticRec.sh` and every tool it runs under `/opt/AutomaticRec`, and links that script into `/usr/bin/AutoRec` (and `/usr/bin/AutomaticRec`). It exits with an error if any required tool is missing or does not start. Open a new terminal afterwards so `/opt/AutomaticRec/bin` is on `PATH`.
 
 ---
 

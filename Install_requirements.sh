@@ -21,7 +21,7 @@ INSTALLER_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 INSTALL_ROOT="/opt/AutomaticRec"
 BIN_DIR="$INSTALL_ROOT/bin"
 VENV="$INSTALL_ROOT/venv"
-BIN_LINK="/usr/bin/AutomaticRec"
+BIN_LINK="/usr/bin/AutoRec"
 GO_MIN="1.24"
 
 for required in AutomaticRec.sh recon_inverso.py dic.txt requirements.txt; do
@@ -152,6 +152,7 @@ if [[ ! -f "$INSTALL_ROOT/AutomaticRec.conf" && -f "$INSTALLER_DIR/AutomaticRec.
   install -m 644 "$INSTALLER_DIR/AutomaticRec.conf" "$INSTALL_ROOT/AutomaticRec.conf"
 fi
 ln -sfn "$INSTALL_ROOT/AutomaticRec.sh" "$BIN_LINK"
+ln -sfn "$INSTALL_ROOT/AutomaticRec.sh" /usr/bin/AutomaticRec
 
 # /usr/local/bin ya está en el PATH por defecto. El perfil antepone el directorio nuevo
 # para que el httpx de ProjectDiscovery gane sobre un httpx de Python.
@@ -227,7 +228,8 @@ for path in \
   "$INSTALL_ROOT/AutomaticRec.sh" \
   "$INSTALL_ROOT/recon_inverso.py" \
   "$INSTALL_ROOT/dic.txt" \
-  "$BIN_LINK"
+  "$BIN_LINK" \
+  /usr/bin/AutomaticRec
 do
   if [[ -e "$path" ]]; then
     echo "[✔] $path"
@@ -250,8 +252,9 @@ if [[ "$missing" -ne 0 ]]; then
   exit 1
 fi
 
-echo "[✔] Listo. Abrí una terminal nueva y ejecutá:"
-echo "       AutomaticRec -u ejemplo.com -a"
+echo "[✔] Listo. Desde cualquier directorio:"
+echo "       AutoRec -u ejemplo.com -a"
+echo "    El mismo script también responde como AutomaticRec."
 echo "    Archivos: $INSTALL_ROOT"
 echo "    Binarios: $BIN_DIR  (también en /usr/local/bin)"
 echo "    La key de Chaos, si la usás, va en ~/.config/automaticrec.conf"
